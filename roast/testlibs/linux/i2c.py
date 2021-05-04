@@ -77,10 +77,10 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
                             break
                         else:
                             self.i2c_not_detect.append(dev_name)
-        log.info("\n============== SUMMARY ==============")
+        log.info("============== SUMMARY ==============")
         log.info("i2c detected peripherals     : " f"{self.i2c_detect}")
-        log.info(f"\n\ni2c not detected peripherals : {self.i2c_not_detect}")
-        log.info("\n======================================")
+        log.info(f"i2c not detected peripherals : {self.i2c_not_detect}")
+        log.info("======================================")
         if not silent_discard and self.i2c_not_detect:
             assert False, f"{self.i2c_not_detect} not detected"
         return self.i2c_detect, self.i2c_not_detect
@@ -106,8 +106,8 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
         self.i2c_speed_dmesg = int(
             self.host_console.output().split("kHz")[0].split()[-1]
         )
-        log.info(f"\n\ni2c bus speed from dts : {self.i2c_speed_dts} kHz")
-        log.info(f"i2c bus speed from dmesg : {self.i2c_speed_dmesg} kHz\n")
+        log.info(f"i2c bus speed from dts : {self.i2c_speed_dts} kHz")
+        log.info(f"i2c bus speed from dmesg : {self.i2c_speed_dmesg} kHz")
         if self.i2c_speed_dmesg == self.i2c_speed_dts:
             log.info(f"i2c bus speed configured properly " f"from dts")
             return self.i2c_speed_dmesg
@@ -116,9 +116,9 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
 
     def find_eeprom_device(self):
         self.console.sync()
-        self.console.runcmd(f"find {self.sys_amba} -iname eeprom", expected="\r\n")
-        self.eeprom_device = self.console.output()
-        self.eeprom_i2c = self.console.output().split("/")[-2]
+        self.console.runcmd(f"find {self.sys_devices} -iname eeprom", expected="\r\n")
+        self.eeprom_device = self.console.output().split("\n")[0]
+        self.eeprom_i2c = self.eeprom_device.split("/")[-2]
         self.eeprom_i2c_bus = self.eeprom_i2c.split("-")[0]
         self.eeprom_address = self.eeprom_i2c.split("-")[1][-2:]
         self.eeprom_info = {
@@ -146,7 +146,7 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
         cmd = (
             f"i2ctransfer -f -y {self.i2c_bus_number} "
             f"w{write_bytes_count}@0x{self.i2c_slave_address} "
-            f"0x{i2c_command} r{read_bytes_count}0x{self.i2c_slave_address}"
+            f"0x{i2c_command} r{read_bytes_count}@0x{self.i2c_slave_address}"
         )
         self.console.runcmd(cmd, expected="\r\n")
 
@@ -166,7 +166,7 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
         return int(self.console.output())
 
     def ina2xx(self):
-        self.capture_dmesg()
+        self.capture_boot_dmesg()
         if "ina2xx" in self.console.output():
             log.info("ina2xx driver probed")
         else:
@@ -181,31 +181,33 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
         if not self.i2c_bus_number.isdigit():
             assert False, "ina2xx slave device not found"
 
-        self.console.runcmd("i2cdetect -l", expected="\r\n")
-        self.console.runcmd(
-            f"echo y | i2cdetect -r {self.i2c_bus_number}", expected="\r\n"
-        )
+        self.console.sync()
+        self.console.runcmd("i2cdetect -l")
+        self.console.runcmd(f"echo y | i2cdetect -r {self.i2c_bus_number}")
         log.info("Defualt calibration_value is 2048")
         log.info("Defualt Current_LSB value is 1.25 " "Milli Amps")
 
+        self.console.sync()
         # Get voltage, current and power values with i2c commands
-        self.i2c_transfer(self, "1", "00", "2")
-        self.i2c_transfer(self, "1", "05", "2")
+        self.i2c_transfer("1", "00", "2")
         self.console.sync()
 
-        self.i2c_transfer(self, "1", "01", "2")
+        self.i2c_transfer("1", "05", "2")
+        self.console.sync()
+
+        self.i2c_transfer("1", "01", "2")
         shunt_vol_reg0 = self.format_i2ctransfer_output() * 2.5 / 1000
         self.console.sync()
 
-        self.i2c_transfer(self, "1", "02", "2")
+        self.i2c_transfer("1", "02", "2")
         bus_vol_reg0 = self.format_i2ctransfer_output() * 1.25
         self.console.sync()
 
-        self.i2c_transfer(self, "1", "03", "2")
+        self.i2c_transfer("1", "03", "2")
         power_register0 = self.format_i2ctransfer_output() * 25 * 125 * 10
         self.console.sync()
 
-        self.i2c_transfer(self, "1", "04", "2")
+        self.i2c_transfer("1", "04", "2")
         current_register0 = self.format_i2ctransfer_output() * 1.25
         self.console.sync()
 
@@ -216,29 +218,29 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
         power_register1 = self.get_hwmon_value(self.i2c_device, "power1_input")
 
         log.info(
-            f"\nregisters     i2c                    sysfs\n"
-            f"--------------------------------------------------------\n"
-            f"shunt vol {shunt_vol_reg0}mV	{shunt_vol_reg1}mV\n"
-            f"bus vol   {bus_vol_reg0}mV	{bus_vol_reg1}mV\n"
-            f"power     {power_register0}mV	{power_register1}mW\n"
-            f"current   {current_register0}mA	{current_register1}mA\n"
-            f"--------------------------------------------------------\n"
+            f"registers     i2c                    sysfs"
+            f"--------------------------------------------------------"
+            f"shunt vol {shunt_vol_reg0}mV	{shunt_vol_reg1}mV"
+            f"bus vol   {bus_vol_reg0}mV	{bus_vol_reg1}mV"
+            f"power     {power_register0}mV	{power_register1}mW"
+            f"current   {current_register0}mA	{current_register1}mA"
+            f"--------------------------------------------------------"
         )
 
         ina2xx_i2c = [
-            "shunt_vol_reg0",
-            "bus_vol_reg0",
-            "power_register0",
-            "current_register0",
+            int(shunt_vol_reg0),
+            int(bus_vol_reg0),
+            int(power_register0),
+            int(current_register0),
         ]
         ina2xx_hwmon = [
-            "shunt_vol_reg1",
-            "bus_vol_reg1",
-            "power_register1",
-            "current_register1",
+            int(shunt_vol_reg1),
+            int(bus_vol_reg1),
+            int(power_register1),
+            int(current_register1),
         ]
-        for i in ina2xx_i2c:
-            if not math.isclose(ina2xx_i2c[i], ina2xx_hwmon[i], atol=10):
+        for i in range(len(ina2xx_i2c)):
+            if not math.isclose(ina2xx_i2c[i], ina2xx_hwmon[i], abs_tol=10):
                 assert False, "ina2xx_i2c[i] not matched"
 
     def eeprom_dd(self, eeprom_device, bs="1", count="256"):
@@ -313,8 +315,14 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
             eeprom_rw_cmd,
             expected="write read comparison completed",
             expected_failures=failures,
+            timeout=2700,
         )
         self.console.runcmd(f"kill -2 {ping_pid}")
         self.console.runcmd(
             f"cat {ping_txt}; rm {ping_txt}", expected=", 0% packet loss"
         )
+
+    def i2c_dtb_overlay_frequency(self, i2c_node, bitstream_bin, dtbo_file, serverIp):
+        self.get_tftp_file(bitstream_bin, serverIp)
+        self.load_bitstream(bitstream_bin, dtbo_file)
+        self.console.runcmd(f"hexdump {self.sys_dt_base}/{i2c_node}/clock-frequency")

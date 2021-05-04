@@ -14,3 +14,5 @@ logging.getLogger(__name__).addHandler(NullHandler())
 from pkgutil import extend_path
 
 __path__ = extend_path(__path__, __name__)  # type: ignore
+
+from ._version import __version__

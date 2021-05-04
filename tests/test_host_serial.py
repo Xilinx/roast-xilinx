@@ -3,9 +3,8 @@
 # SPDX-License-Identifier: MIT
 #
 
-import socket
 import pytest
-from roast.serial import Serial
+from roast.serial import SerialBase, Serial
 
 
 config = {
@@ -16,27 +15,26 @@ config = {
 }
 
 
-def test_serial(mocker):
+def test_host_serial(mocker):
     mock_xexpect = mocker.patch(
-        "roast.component.host_serial.Xexpect", return_value=mocker.Mock("xexpect")
+        "roast.serial.Xexpect", return_value=mocker.Mock("xexpect")
     )
     mock_xexpect.return_value.expect = mocker.Mock("xexpect", return_value="xexpect")
     mock_xexpect.return_value.sendline = mocker.Mock("sendline")
     mock_xexpect.return_value.runcmd = mocker.Mock("runcmd")
     mock_xexpect.return_value.runcmd_list = mocker.Mock("runcmd_list")
     mock_xexpect.return_value.sendcontrol = mocker.Mock("sendcontrol")
-    mock_xexpect.return_value.output = mocker.Mock("output")
     mock_xexpect.return_value.send = mocker.Mock("send")
-    mock_xexpect.return_value.search = mocker.Mock("search")
+    mock_xexpect.return_value.output = mocker.Mock("output")
     mock_xexpect.return_value._setup_init = mocker.Mock("setup_init")
+    mock_xexpect.return_value.search = mocker.Mock("search")
+    mock_xexpect.return_value.sync = mocker.Mock("sync")
     mock_picom_connect = mocker.patch("roast.component.host_serial.picom_connect")
     mock_picom_disconnect = mocker.patch("roast.component.host_serial.picom_disconnect")
     s = Serial(serial_type="host", config=config)
     assert s.driver.config == config
     assert s.driver.hostname == "remote_host"
     mock_picom_connect.assert_called_with(mocker.ANY, "com", "baudrate")
-
-    s = Serial(serial_type="host", config=config)
     s.exit()
     mock_picom_disconnect.assert_called()
 

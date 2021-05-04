@@ -3,9 +3,6 @@
 # SPDX-License-Identifier: MIT
 #
 
-ROOT = ""
-buildDir = "{ROOT}/build"
-
 # hwflow
 version = "2020.2"
 build = "{version}_daily_latest"

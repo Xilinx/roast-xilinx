@@ -8,20 +8,21 @@ from roast.testlibs.linux.baselinux import BaseLinux
 from roast.testlibs.linux.mtd import MtdLinux
 from roast.testlibs.linux.kconfig import Kconfig
 from roast.testlibs.linux.dts import DtsLinux
+from roast.testlibs.linux.fileops import FileOps
 
 log = logging.getLogger(__name__)
 
 
-class SpiLinux(MtdLinux, Kconfig, DtsLinux, BaseLinux):
+class SpiLinux(MtdLinux, Kconfig, DtsLinux, BaseLinux, FileOps):
     def __init__(self, console, config):
         super().__init__(console, config)
 
     def is_qspi_dual_parallel(self, peripheral, dt_node):
         self.console.sync()
         self.console.runcmd(
-            f"hexdump /proc/device-tree/amba/{dt_node}/is-dual", expected="\r\n"
+            f"hexdump /proc/device-tree/{dt_node}/is-dual", expected="\r\n"
         )
-        self.mode = self.console.output().split("\n")[1].split()[-1]
+        self.mode = self.console.output().split("\n")[0].split()[-1]
         log.info(f"^^^^ {self.mode} ^^^")
         if "0100" in self.mode:
             log.info(f"{peripheral} is in dual parallel " "configuration")
@@ -69,3 +70,18 @@ class SpiLinux(MtdLinux, Kconfig, DtsLinux, BaseLinux):
             assert False, (
                 "current sector size is not matched with expected " "sector size"
             )
+
+    def flash_protection(self, mtd_num, offset, block_count):
+        # Protecing qspi flash partition by locking to erase.
+        self.console.runcmd(f"flash_lock /dev/mtd{mtd_num} {offset} {block_count}")
+        self.console.runcmd(
+            f"flash_erase /dev/mtd{mtd_num} {offset} {block_count}",
+            expected=["MTD Erase failure", "Erase operation failed"],
+            expected_failures="100 % complete",
+            err_msg="Failed to protect flash partition after locking",
+        )
+        self.console.runcmd(f"flash_unlock /dev/mtd{mtd_num} {offset} {block_count}")
+        self.console.runcmd(
+            f"flash_erase /dev/mtd{mtd_num} {offset} {block_count}",
+            expected="100 % complete",
+        )

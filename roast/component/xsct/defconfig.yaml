@@ -38,10 +38,28 @@
                 "pname"             : "dhrystone",
             },
 
-    "empty_application":
+    "empty_application_legacy":
             {
                 "app"               : "Empty Application",
                 "pname"             : "empty_application",
+            },
+
+    "empty_application":
+            {
+                "app"               : "Empty Application(C)",
+                "pname"             : "empty_application",
+            },
+
+    "empty_application_c++":
+            {
+                "app"               : "Empty Application (C++)",
+                "pname"             : "empty_application_c++",
+            },
+
+    "mba_fs_boot":
+            {
+                "app"               : "mba_fs_boot",
+                "pname"             : "mba_fs_boot",
             },
 
     "freertos_hello_world":
@@ -158,7 +176,7 @@
                 "pname"             : "openamp_echo_test",
             },
 
-    "openamp_mat_mul_demo":
+    "openamp_matrix_multiply":
             {
                 "app"               : "OpenAMP matrix multiplication Demo",
                 "pname"             : "openamp_matrix_multiply",
@@ -212,7 +230,7 @@
                 "pname"             : "versal_psmfw",
             },
 
-    "zynq_dram_tests":
+    "zynq_dram_test":
             {
                 "app"               : "Zynq DRAM tests",
                 "pname"             : "zynq_dram_test",
@@ -234,6 +252,18 @@
             {
                 "app"               : "Zynq MP FSBL",
                 "pname"             : "zynqmp_fsbl",
+            },
+
+    "imgsel":
+            {
+                "app"               : "Image Selector",
+                "pname"             : "imgsel",
+            },
+
+    "img_rcvry":
+            {
+                "app"               : "Image Recovery",
+                "pname"             : "img_rcvry",
             },
 
     "zynqmp_pmufw":

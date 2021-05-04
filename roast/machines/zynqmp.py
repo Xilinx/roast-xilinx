@@ -24,7 +24,6 @@ atf_artifacts = ["zynqmp/release/bl31/bl31.elf"]
 atf_compile_flags = "RESET_TO_BL31=1 PLAT=zynqmp bl31 ZYNQMP_PLATFORM=silicon \
 BUILD_BASE=../atf-build"
 
-boot_scr_path = "{dataDir}/scr"
 boot_scr_loadaddr = 0x20000000
 
 rootfs_loadaddr = 0x4000000

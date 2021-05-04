@@ -500,7 +500,7 @@ proc build_bsp {} {
 	if {$::params(use_hypervisor) eq "1"} {
 		set hypervisor " -guest-on-hypervisor"
 	}
-	if {$::params(app) ne "Empty Application" && $::params(app) ne "Empty Application (C++)"} {
+	if {$::params(app) ne "Empty Application(C)" && $::params(app) ne "Empty Application" && $::params(app) ne "Empty Application (C++)"} {
 		domain create -name $::params(bspname) -proc $::params(processor) \
 		-os $::params(osname) -support-app "$::params(app)" $hypervisor
 	} else {

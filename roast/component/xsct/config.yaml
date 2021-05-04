@@ -64,6 +64,8 @@
                         "hwpname",                # hw project name
                         "lib",                    # list of libraries to be added
                         "library_name",           # library name to be build
+                        "thirdparty_name",        # thirdparty app/lib name to be build
+                        "thirdparty_dir",         # thridparty dir where app/lib is present
                         "osname",                 # os to be used, Def = standalone
                         "out_dir",                # path of the output elf dir
                         "pname",                  # project name
@@ -71,9 +73,13 @@
                         "rp",                     # repository to be used
                         "rp_intg",                # intg repository path
                         "src",                    # src files to be copied
+                        "import_sources",         # Import sources into a application
+                        "import_args",            # Import sources into a application
                         "ws",                     # path of the workspace
                         "yamlconf",               # yaml configuration
                         "functest_name",          # function test name
                         "build_till_bsp",         # build till bsp only
+                        "use_hypervisor",         # use hypervisor
+                        "iar_compilation",        # iar compilation
                       ],
 }

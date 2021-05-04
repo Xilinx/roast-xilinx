@@ -5,6 +5,7 @@
 
 import logging
 import os
+import inspect
 import glob
 from roast.utils import *  # pylint: disable=unused-wildcard-import
 from roast.component.basebuild import Basebuild
@@ -17,6 +18,7 @@ log = logging.getLogger(__name__)
 class BuildComponent(Basebuild):
     def __init__(self, config):
         super().__init__(config)
+        super().configure()
         self.component = config["component"]
         self.config = config
 
@@ -58,7 +60,7 @@ class BuildComponent(Basebuild):
         # FIXME: add as dictionary.
         # Donot hardcode xsa name
         app_cmd = "%s %s/build_app.tcl -pname %s " % (
-            self.config["xsctCmd"],
+            f"{self.config['vitisPath']}/bin/xsct",
             self.config["scriptsTclDir"],
             self.config["component"],
         )
@@ -86,6 +88,7 @@ def build(config) -> bool:
 class BuildOsl(Basebuild):
     def __init__(self, config):
         super().__init__(config)
+        super().configure()
 
         self.component = config["component"]
         self.config = config
@@ -96,33 +99,34 @@ class BuildOsl(Basebuild):
         self._setup(self.component)
 
     def _setup(self, component):
-        self.src_reference = get_config_data(self.config, f"git.{component}.reference")
-        self.external_src = self.config[f"external_{component}_src"]
+        self.src_reference = self.config.get(f"git.{component}.reference")
+        self.external_src = self.config.get(f"external_{component}_src")
         self.arch = self.config[f"{component}_arch"]
         self.compiler = self.config[f"{component}_compiler"]
 
-        if has_key(self.config, f"{component}_defconfig"):
+        if f"{component}_defconfig" in self.config:
             self.defconfig = self.config[f"{component}_defconfig"]
         else:
             self.defconfig = None
 
-        if has_key(self.config, f"{component}_devicetree"):
+        if f"{component}_devicetree" in self.config:
             self.console.runcmd(
                 f"export DEVICE_TREE={self.config[f'{component}_devicetree']}"
             )
 
-        self.console.runcmd(f"source {self.config['VITIS_SETTINGS_SH']}")
-        self.console.runcmd(f"source {self.config['sysroot_env']}")
-        # FIXME : Remove explicit addition of tools to env
-        self.console.runcmd("export PATH=/group/siv2_xhd/work/lovek/tools/:$PATH")
+        self.console.runcmd(f"source {self.config['vitisPath']}/settings64.sh")
+        if "sysroot_env" in self.config:
+            self.console.runcmd(f"source {self.config['sysroot_env']}")
+        if "sysroot_tool" in self.config:
+            self.console.runcmd(f"export PATH={self.config['sysroot_tool']}:$PATH")
         self.console.runcmd(f"export ARCH={self.arch}")
         self.console.runcmd(f"export CROSS_COMPILE={self.compiler}")
-        if has_key(self.config, "local_version"):
+        if "local_version" in self.config:
             self.console.runcmd(f"export LOCALVERSION={self.config.local_version}")
         mkdir(self.build_path)
 
         # export default env
-        if has_key(self.config, f"{component}_env"):
+        if f"{component}_env" in self.config:
             for env_var, value in self.config[f"{component}_env"].items():
                 self.console.runcmd(f"export {env_var}={value}")
 
@@ -130,13 +134,20 @@ class BuildOsl(Basebuild):
         if not self.external_src:
             self.console.runcmd(f"cd {self.config['workDir']}")
 
-            clone(
-                self.config.git_params[f"{self.component}"],
-                f"{self.config['workDir']}/{self.component}",
-                "build_osl.log",
-                workDir=self.config["workDir"],
-                reference=self.src_reference,
-            )
+            if self.src_reference:
+                clone(
+                    self.config.git[f"{self.component}"],
+                    f"{self.config['workDir']}/{self.component}",
+                    workDir=self.config["workDir"],
+                    reference=self.src_reference,
+                )
+            else:
+                clone(
+                    self.config.git[f"{self.component}"],
+                    f"{self.config['workDir']}/{self.component}",
+                    workDir=self.config["workDir"],
+                )
+
             self.src_path = f"{self.config['workDir']}/{self.component}/"
         else:
             self.src_path = f"{self.external_src}"
@@ -151,12 +162,12 @@ class BuildOsl(Basebuild):
 
     def compile(self):
         extra_flags = ""
-        if has_key(self.config, f"{self.component}_compile_flags"):
+        if f"{self.component}_compile_flags" in self.config:
             extra_flags = f'{self.config[f"{self.component}_compile_flags"]}'
         if not self.config["outoftreebuild"]:
             self.build_path = self.src_path
         cmd = f'make -j {self.config["parallel_make"]} -C {self.src_path} O={self.build_path} {extra_flags}'
-        self.console.runcmd(cmd, timeout=1000)
+        self.console.runcmd(cmd, timeout=3600)
 
     def deploy(self):
         mkdir(self.config["deploy_artifacts"])
@@ -175,11 +186,14 @@ class BuildDtb(BuildOsl):
 
     def compile(self):
         extra_flags = ""
-        if has_key(self.config, f"{self.component}_compile_flags"):
+        if f"{self.component}_compile_flags" in self.config:
             extra_flags = f'{self.config[f"{self.component}_compile_flags"]}'
 
         if self.config[f"{self.component}_buildtype"] == "dtg":
-            self.tcl = os.path.join(self.config["ROOT"], "scripts/tcl/generate_dts.tcl")
+            import roast.component.osl
+
+            tcl_dir = os.path.dirname(inspect.getsourcefile(roast.component.osl))
+            self.tcl = os.path.join(tcl_dir, "generate_dts.tcl")
             self.repo = os.path.join(self.config["workDir"], self.component)
             self.design = os.path.join(
                 self.config[f"{self.component}_design"],
@@ -187,10 +201,10 @@ class BuildDtb(BuildOsl):
                 self.board,
                 "system.xsa",
             )
-            cmd = f'unset DISPLAY && {self.config["xsctCmd"]} {self.tcl} {self.design} {self.repo} {self.build_path} {self.config[f"{self.component}_dtg"]}'
+            cmd = f'unset DISPLAY && {self.config["vitisPath"]}/bin/xsct {self.tcl} {self.design} {self.repo} {self.build_path} {self.config[f"{self.component}_dtg"]}'
         else:
             cmd = f"make dtbs -C {self.src_path} O={self.build_path} {extra_flags}"
-        self.console.runcmd(cmd, timeout=1000)
+        self.console.runcmd(cmd, timeout=1500)
         self.generate_dtb()
 
     def generate_dtb(self):
@@ -223,12 +237,14 @@ class BuildRootfsModule(BuildOsl):
 
     def compile(self):
         super().compile()
-        cmd = f"make modules -C {self.src_path} O={self.build_path}"
-        self.console.runcmd(cmd)
+        cmdlist = [f"make modules -C {self.src_path} O={self.build_path}", "sync"]
+        self.console.runcmd_list(cmdlist, timeout=1000)
         mkdir(self.config["linux_module"])
-        cmd = f"make modules_install INSTALL_MOD_PATH={self.config['linux_module']} \
-              -C {self.src_path} O={self.build_path}"
-        self.console.runcmd(cmd)
+        cmdlist = [
+            f"make modules_install INSTALL_MOD_PATH={self.config['linux_module']} -C {self.src_path} O={self.build_path}",
+            "sync",
+        ]
+        self.console.runcmd_list(cmdlist, timeout=1000)
         self.generate_rootfs()
 
     def generate_rootfs(self):
@@ -239,7 +255,8 @@ class BuildRootfsModule(BuildOsl):
         self.src_rootfs = os.path.join(self.src_rootfs_path, self.src_rootfs_file)
         self.dest_rootfs = os.path.join(self.config["imagesDir"], self.src_rootfs_file)
         self.console.runcmd(f"cd {self.config['imagesDir']}")
-        self.console.runcmd(f"cpio -idmv --no-absolute-filenames < {self.src_rootfs}")
+        cmdlist = [f"cpio -idmv --no-absolute-filenames < {self.src_rootfs}", "sync"]
+        self.console.runcmd_list(cmdlist, timeout=600)
         remove(f"{self.config['imagesDir']}/lib/modules", silent_discard=False)
         os.unlink(glob.glob(f"{self.config['linux_module']}/lib/modules/*/source")[0])
         os.unlink(glob.glob(f"{self.config['linux_module']}/lib/modules/*/build")[0])
@@ -247,12 +264,21 @@ class BuildRootfsModule(BuildOsl):
             f"{self.config['linux_module']}/lib/modules",
             f"{self.config['imagesDir']}/lib/modules",
         )
-        self.console.runcmd("find . > ../module.txt")
         self.console.runcmd(
-            f"cpio --quiet -H newc -o < ../module.txt -O {self.dest_rootfs}"
+            "find . -type f -print0 | xargs -0 -n 1 ls -l | grep '\-rwsr' | \
+             grep '\/bin\/\|\/sbin\/' | awk '{print $9}' | xargs -r chmod 755"
         )
+        self.console.runcmd("find . > ../module.txt", timeout=600)
+        cmdlist = [
+            f"cpio --quiet -H newc -o < ../module.txt -O {self.dest_rootfs}",
+            "sync",
+        ]
+        self.console.runcmd_list(cmdlist, timeout=600)
         self.console.runcmd(
             f"gzip {self.dest_rootfs} && mkimage -A {self.arch} -T ramdisk -C gzip \
                     -d {self.dest_rootfs}.gz {self.dest_rootfs}.gz.u-boot"
         )
-        copy_file(f"{self.dest_rootfs}.gz.u-boot", self.config["linux_module"])
+        copy_file(
+            f"{self.dest_rootfs}.gz.u-boot",
+            f"{self.config['deploy_artifacts']}/rootfs.cpio.gz.u-boot",
+        )

@@ -44,7 +44,7 @@ class MtdLinux:
             f"flash_erase {extra_args} {mtd_device} 0 0", expected="100 % complete"
         )
 
-    def ubiformat(self, mtd_device, extra_args="-e 0 -y"):
+    def ubiformat(self, mtd_device, extra_args=""):
         self.console.runcmd(
             f"ubiformat {mtd_device} {extra_args}", expected="100 % complete"
         )
@@ -72,7 +72,7 @@ class MtdLinux:
         else:
             assert False, "flashcp test failed"
 
-    def mtdmoduletest(self, mtd_num, module, extra_args=""):
+    def mtdmoduletest(self, mtd_num, module, extra_args="", timeout=7200):
         self.console.runcmd("lsmod", expected="\r\n")
         if module in self.console.output():
             cmd = f"depmod; rmmod {module}"
@@ -82,5 +82,5 @@ class MtdLinux:
             cmd,
             expected="finished",
             expected_failures=f"{module}: error:",
-            timeout=3000,
+            timeout=timeout,
         )

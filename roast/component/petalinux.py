@@ -5,9 +5,10 @@
 
 import os
 import sys
+import re
 import shutil
 import subprocess
-import datetime
+from datetime import datetime
 import logging
 from typing import Optional
 from roast.utils import *  # pylint: disable=unused-wildcard-import
@@ -35,9 +36,13 @@ class Petalinux(Basebuild):
     psmfw_dir = f"{recipes_bsp}/psm-firmware"
     system_user_file = f"{devicetree_dir}/files/system-user.dtsi"
     kernel_dir = f"{meta_user}/recipes-kernel/linux/linux-xlnx"
-    kernel_append = f"{meta_user}/recipes-kernel/linux/linux-xlnx_%.bbappend"
+    kernel_bbappend = f"{meta_user}/recipes-kernel/linux/linux-xlnx_%.bbappend"
     devicetree_append = f"{devicetree_dir}/device-tree.bbappend"
     fsbl_bbappend = f"{fsbl_dir}/fsbl_%.bbappend"
+    atf_dir = f"{recipes_bsp}/arm-trusted-firmware"
+    atf_bbappend = f"{atf_dir}/arm-trusted-firmware_%.bbappend"
+    uboot_dir = f"{meta_user}/recipes-bsp/u-boot"
+    uboot_bbappend = f"{uboot_dir}/u-boot-xlnx_%.bbappend"
     pmufw_bbappend = f"{pmufw_dir}/pmu-firmware_%.bbappend"
     plm_bbappend = f"{plm_dir}/plm_%.bbappend"
     psmfw_bbappend = f"{psmfw_dir}/psm-firmware_%.bbappend"
@@ -47,6 +52,27 @@ class Petalinux(Basebuild):
     libmetal_bbappend = f"{openamp_dir}/libmetal/libmetal_%.bbappend"
     xen_dir = f"{meta_user}/recipes-extended/xen"
     xen_bbappend = f"{xen_dir}/xen_%.bbappend"
+    recipesmm_dir = f"{meta_user}/recipes-multimedia/"
+    gst_dir = f"{recipesmm_dir}/gstreamer/"
+    vcu_dir = f"{recipesmm_dir}/vcu/"
+    vcu_firmware_dir = f"{recipesmm_dir}/vcu/vcu-firmware"
+    vcu_firmware_bbappend = f"{vcu_dir}/vcu-firmware.bbappend"
+    vcu_omxil_dir = f"{recipesmm_dir}/vcu/libomxil-xlnx"
+    vcu_omxil_bbappend = f"{vcu_dir}/libomxil-xlnx.bbappend"
+    vcu_ctrlsw_dir = f"{recipesmm_dir}/vcu/libvcu-xlnx"
+    vcu_ctrlsw_bbappend = f"{vcu_dir}/libvcu-xlnx.bbappend"
+    vcu_modules_dir = f"{recipesmm_dir}/vcu/kernel-module-vcu"
+    vcu_modules_bbappend = f"{vcu_dir}/kernel-module-vcu.bbappend"
+    gstreamer_dir = f"{recipesmm_dir}/gstreamer/gstreamer1.0"
+    gstreamer_bbappend = f"{gst_dir}/gstreamer1.0_%.bbappend"
+    gst_plugins_bad_dir = f"{recipesmm_dir}/gstreamer/gstreamer1.0-plugins-bad"
+    gst_plugins_bad_bbappend = f"{gst_dir}/gstreamer1.0-plugins-bad_%.bbappend"
+    gst_plugins_base_dir = f"{recipesmm_dir}/gstreamer/gstreamer1.0-plugins-base"
+    gst_plugins_base_bbappend = f"{gst_dir}/gstreamer1.0-plugins-base_%.bbappend"
+    gst_plugins_good_dir = f"{recipesmm_dir}/gstreamer/gstreamer1.0-plugins-good"
+    gst_plugins_good_bbappend = f"{gst_dir}/gstreamer1.0-plugins-good_%.bbappend"
+    gst_omx_dir = f"{recipesmm_dir}/gstreamer/gstreamer1.0-omx"
+    gst_omx_bbappend = f"{gst_dir}/gstreamer1.0-omx_%.bbappend"
 
     def __init__(self, config, setup: bool = True):
         super().__init__(config, setup)
@@ -66,6 +92,20 @@ class Petalinux(Basebuild):
         self.qemu_boot = False
         # Acquire bash console.
         self.runner = Xexpect(log, exit_nzero_ret=True)
+        myconfs = [
+            "RECIPE_NAME",
+            "RECIPE_NEW_NAME",
+            "FETCHURI",
+            "SOURCE_PATH",
+            "RECIPE_DESTINATION",
+            "IMAGE_RECIPE",
+            "WORKSPACE_LAYERPATH",
+            "EXISTING_RECIPENAME",
+            "RECIPE_UPGRADE",
+        ]
+        for myconf in myconfs:
+            if myconf in config:
+                setattr(self, myconf.lower(), getattr(config, myconf))
 
     def source_tool(self, timeout: int = 120) -> None:
         """This Function source the petalinux tool.
@@ -73,7 +113,8 @@ class Petalinux(Basebuild):
         Parameters:
             PLNX_TOOL - by default set to petalinux daily_latest
         """
-
+        if not is_file(self.plnx_tool):
+            raise Exception(f"Error: ({self.plnx_tool}) is not a file")
         cmd = f"source {self.plnx_tool}"
         self.runner.runcmd(cmd=str(cmd), timeout=timeout)
         log.info(f"Petalinux Tool : {self.runner.runcmd(f'echo $PETALINUX')}")
@@ -93,7 +134,7 @@ class Petalinux(Basebuild):
 
         self.source_tool()
         cmd = f"petalinux-create -t project "
-        if has_key(self.config, "plnx_flow") and self.config["plnx_flow"] == "template":
+        if self.config.get("plnx_flow") == "template":
             log.info("Using templete flow to create petalinux project...")
             cmd += f"--template {self.config['platform']}"
         else:
@@ -105,7 +146,7 @@ class Petalinux(Basebuild):
                 assert False, "Petalinux BSP Not found"
             cmd += f"-s {self.plnx_bsp_path} "
 
-        if has_key(self.config, "plnx_proj"):
+        if "plnx_proj" in self.config:
             cmd += f" -n {self.plnx_proj}"
 
         self.runner.runcmd(f"cd {self.workDir}")
@@ -124,15 +165,14 @@ class Petalinux(Basebuild):
             git.bsp.branch : "master"
         """
         self.source_tool()
-        if has_key(self.config, "git.bsp.url"):
+        if "git.bsp.url" in self.config:
             url = self.config.git.bsp.url
-            if not has_key(self.config, "git.bsp.branch"):
+            if "git.bsp.branch" not in self.config:
                 self.config.git.bsp.branch = "master"
             clone(
                 self.config,
                 self.config.git.bsp,
                 self.proj_dir,
-                "fetch_project.log",
                 recurse_submodules=self.config.git.bsp.recurse_submodules,
             )
             os.chdir(self.proj_dir)
@@ -158,9 +198,15 @@ class Petalinux(Basebuild):
                 app_name = app_name.lower()
                 if "bbfile" not in app_name:
                     files = convert_list(files)
-                    create_apps_cmd = f"petalinux-create -t apps --template install -n {app_name.strip()} --enable"
-                    self.runner.runcmd(cmd=str(create_apps_cmd), timeout=timeout)
-                    remove_all_files(f"{self.recipes_apps}/{app_name}/files/")
+                    if self.config.get("plnx_flow") == "template":
+                        create_apps_cmd = f"petalinux-create -t apps --template install -n {app_name.strip()} --enable"
+                        self.runner.runcmd(cmd=str(create_apps_cmd), timeout=timeout)
+                        remove_all_files(f"{self.recipes_apps}/{app_name}/files/")
+                    else:
+                        create_apps_cmd = (
+                            f"petalinux-create -t apps -n {app_name.strip()} --enable"
+                        )
+                        self.runner.runcmd(cmd=str(create_apps_cmd), timeout=timeout)
                     for data in files:
                         data = parse_config(self.config, data)
                         if is_dir(data):
@@ -173,7 +219,8 @@ class Petalinux(Basebuild):
                                 data,
                                 f"{self.proj_dir}/{self.recipes_apps}/{app_name}/files/",
                             )
-
+            for app_name, files in plnx_apps.items():
+                app_name = app_name.lower()
                 if "bbfile" in app_name:
                     files = parse_config(self.config, files)
                     app_name = os.path.splitext(os.path.basename(files))[0]
@@ -191,9 +238,7 @@ class Petalinux(Basebuild):
         if self.plnx_tmp:
             self.plnx_tmp = os.path.join(
                 self.plnx_tmp,
-                self.plnx_proj
-                + "-"
-                + datetime.datetime.now().strftime("%Y.%m.%d-%H.%M.%S"),
+                self.plnx_proj + "-" + datetime.now().strftime("%Y.%m.%d-%H.%M.%S"),
             )
 
             mkdir(self.plnx_tmp)
@@ -202,13 +247,24 @@ class Petalinux(Basebuild):
                 f"{self.project_config}", f'CONFIG_TMP_DIR_LOCATION="{self.plnx_tmp}"'
             )
 
+        if is_filesystem_nfs(self.proj_dir):
+            self.plnx_tmp = self.get_tmp_path()
+
+    def get_tmp_path(self):
+        with open(f"{self.proj_dir}/{self.project_config}", "r") as read_obj:
+            for line in read_obj:
+                if "CONFIG_TMP_DIR_LOCATION" in line:
+                    matchObj = re.search('CONFIG_TMP_DIR_LOCATION="(.*)"', line)
+                    tmp_path = matchObj.group(1)
+                    return tmp_path
+
     def silent_config(self, timeout: int = 600) -> None:
         """This Function apply the user configuration to petalinux project
         Parameter: plnx_config_component (optional)
         """
 
         plnx_silent_cmd = "yes | petalinux-config"
-        if has_key(self.config, "plnx_config_component"):
+        if "plnx_config_component" in self.config:
             plnx_silent_cmd += f" -c {self.config['plnx_config_component']}"
         plnx_silent_cmd += " --silentconfig"
 
@@ -220,7 +276,7 @@ class Petalinux(Basebuild):
             hw_design_path : .xsa file path
         """
 
-        hw_design = self.config["hw_design_path"]
+        hw_design = get_original_path(self.config["hw_design_path"])
         hwdesign_cmd = (
             f"yes | petalinux-config --get-hw-description={hw_design} --silentconfig"
         )
@@ -232,6 +288,8 @@ class Petalinux(Basebuild):
         """
 
         build_cmd = "petalinux-build"
+        if self.config.get("plnx_build_timeout", ""):
+            timeout = self.config.plnx_build_timeout
 
         self.runner.runcmd(cmd=str(build_cmd), timeout=timeout)
 
@@ -257,6 +315,7 @@ class Petalinux(Basebuild):
 
         for key, value in self.config["plnx_configs"].items():
             value = convert_list(value)
+            components = ("plm", "pmufw", "fsbl", "psmfw")
             if "user-rootfs" in key:
                 for itr in value:
                     itr = parse_config(self.config, itr)
@@ -271,14 +330,19 @@ class Petalinux(Basebuild):
                     add_newline(f"{self.project_config}", str(itr))
             elif "kernel" in key:
                 mkdir(self.kernel_dir)
-                add_newline(f"{self.kernel_append}", 'SRC_URI += "file://bsp.cfg"')
+                add_newline(f"{self.kernel_bbappend}", 'SRC_URI += "file://bsp.cfg"')
                 add_newline(
-                    f"{self.kernel_append}",
+                    f"{self.kernel_bbappend}",
                     'FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"',
                 )
                 for itr in value:
                     itr = parse_config(self.config, itr)
                     add_newline(f"{self.kernel_dir}/bsp.cfg", str(itr))
+            elif key in components:
+                mkdir(getattr(self, f"{key}_dir"))
+                for itr in value:
+                    itr = parse_config(self.config, itr)
+                    add_newline(getattr(self, f"{key}_bbappend"), str(itr))
             elif "bspconf" in key:
                 for itr in value:
                     itr = parse_config(self.config, itr)
@@ -288,32 +352,41 @@ class Petalinux(Basebuild):
                 assert False, err_msg
 
     def apply_patch(self):
+        components = ("atf", "pmufw", "fsbl", "uboot")
         for key, value in self.config["apply_patches"].items():
             value = convert_list(value)
+            component_dir = f"{key}_dir"
+            mycomponent_dir = getattr(self, component_dir)
+            append_file = f"{key}_bbappend"
+            myappend_file = getattr(self, append_file)
+            mkdir(mycomponent_dir)
             if "kernel" in key:
-                mkdir(self.kernel_dir)
-                add_newline(f"{self.kernel_append}", 'SRC_URI += "file://bsp.cfg"')
+                add_newline(f"{self.kernel_bbappend}", 'SRC_URI += "file://bsp.cfg"')
                 add_newline(
-                    f"{self.kernel_append}",
+                    myappend_file,
                     'FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"',
                 )
-                for itr in value:
-                    if itr.endswith(".patch"):
-                        if is_file(f"{itr}"):
-                            copy_file(f"{itr}", f"{self.kernel_dir}")
-                            itr = os.path.basename(f"{itr}")
-                            add_newline(
-                                f"{self.kernel_append}", f'SRC_URI += "file://{itr}"'
-                            )
-                        else:
-                            copy_file(
-                                f"{self.config['workDir']}/{itr}", f"{self.kernel_dir}"
-                            )
-                            add_newline(
-                                f"{self.kernel_append}", f'SRC_URI += "file://{itr}"'
-                            )
+            if key in components:
+                add_newline(
+                    myappend_file,
+                    'FILESEXTRAPATHS_prepend := "${THISDIR}:"',
+                )
+            else:
+                add_newline(
+                    myappend_file,
+                    'FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"',
+                )
+            for itr in value:
+                if itr.endswith(".patch"):
+                    if is_file(f"{itr}"):
+                        copy_file(f"{itr}", mycomponent_dir)
+                        itr = os.path.basename(f"{itr}")
+                        add_newline(myappend_file, f'SRC_URI += "file://{itr}"')
                     else:
-                        log.info("Invalid patch...")
+                        copy_file(f"{self.config['workDir']}/{itr}", mycomponent_dir)
+                        add_newline(myappend_file, f'SRC_URI += "file://{itr}"')
+                else:
+                    log.info("Invalid patch...")
 
     def apply_external_component(self):
         """This function adds support to apply external src on petalinux project
@@ -334,7 +407,7 @@ class Petalinux(Basebuild):
         """
 
         def _external_repo_setup(self, key):
-            if key is "openamp":
+            if key == "openamp":
                 key = "open-amp"
             component = re.sub("-", "", key)
             comp = f"{component}_bbappend"
@@ -403,11 +476,22 @@ class Petalinux(Basebuild):
                         )
             else:
                 bbappend = _external_repo_setup(self, key)
-                if value["url"]:
+                if value["externalsrc"]:
+                    repo_name = get_base_name(value["externalsrc"])
+                    self.runner.runcmd(
+                        cmd=f"rsync -av --exclude '.git*' {value['externalsrc']} {self.workDir}",
+                        timeout=120,
+                    )
+                    add_newline(bbappend, f"inherit externalsrc")
+                    add_newline(bbappend, f'EXTERNALSRC = "{self.workDir}/{repo_name}"')
+                    add_newline(
+                        bbappend, f'EXTERNALSRC_BUILD = "{self.workDir}/{repo_name}"'
+                    )
+                elif value["url"]:
                     add_newline(bbappend, f"REPO = \"{value['url']};protocol=https\"")
                     if value["srcrev"]:
                         if value["srcrev"] == "AUTOREV":
-                            add_newline(bbappend, 'SRCREV = "${AUTOREV}"')
+                            add_newline(bbappend, 'SRCREV = "{AUTOREV}"')
                         else:
                             add_newline(bbappend, f"SRCREV = \"{value['srcrev']}\"")
                     if value["branch"]:
@@ -415,12 +499,6 @@ class Petalinux(Basebuild):
                     # Add build dependency using this var, for the component being built
                     if value["depends"]:
                         add_newline(bbappend, f"DEPENDS += \"{value['depends']}\"")
-                elif value["externalsrc"]:
-                    add_newline(bbappend, f"inherit externalsrc")
-                    add_newline(bbappend, f"EXTERNALSRC = \"{value['externalsrc']}\"")
-                    add_newline(
-                        bbappend, f"EXTERNALSRC_BUILD = \"{value['externalsrc']}\""
-                    )
                 else:
                     log.info(
                         "Invalid external component src option.... using default petalinux sources"
@@ -436,7 +514,7 @@ class Petalinux(Basebuild):
         """
 
         mkdir(self.devicetree_dir)
-        if has_key(self.config, "plnx_user_dtsi_files"):
+        if "plnx_user_dtsi_files" in self.config:
             dt_files = convert_list(self.config["plnx_user_dtsi_files"])
             for file in dt_files:
                 copy_file(file, f"{self.devicetree_dir}/files/")
@@ -457,7 +535,7 @@ class Petalinux(Basebuild):
         >>> Usage:
             plnx_user_dtsi_file = 'path to user dtsi file'
         """
-        if has_key(self.config, "plnx_user_dtsi_file"):
+        if "plnx_user_dtsi_file" in self.config:
             plnx_user_dtsi_file = self.config["plnx_user_dtsi_file"]
             system_dt_file = os.path.basename(self.system_user_file)
             user_dt_file = os.path.basename(plnx_user_dtsi_file)
@@ -567,13 +645,13 @@ class Petalinux(Basebuild):
             deploy_dir = "<path>"
         """
         ret = True
-        if has_key(self.config, "deploy_dir"):
+        if "deploy_dir" in self.config:
             deploy_dir = self.config["deploy_dir"]
             if not is_dir(deploy_dir):
                 mkdir(deploy_dir)
 
             log.info(f"Checking petalinux artifacts in {self.proj_dir}")
-            if has_key(self.config, "plnx_artifacts"):
+            if "plnx_artifacts" in self.config:
                 for image in self.config["plnx_artifacts"]:
                     image_file = find_file(image, self.workDir)
                     if image_file:
@@ -614,16 +692,22 @@ class Petalinux(Basebuild):
         proj_path: Optional[str] = None,
         hwserver: Optional[str] = None,
         bitfile: Optional[str] = None,
+        rootfs: Optional[str] = None,
     ) -> None:
-        """ This function create petalinux boot command """
+        """This function create petalinux boot command"""
 
         if proj_path:
             self.proj_dir = proj_path
         if not bitfile:
             bitfile = f"{self.proj_dir}/pre-built/linux/images/system.bit"
         if bitfile.endswith(".bit"):
-            if has_key(self.config, "platform") and self.config["platform"] != "versal":
-                cmd += f" --bitstream {bitfile}"
+            if self.config.get("platform") != "versal":
+                if self.config.get("plnx_no_rev_check"):
+                    cmd += f' --after-connect "fpga -no-revision-check {bitfile}"'
+                else:
+                    cmd += f" --bitstream {bitfile}"
+        if rootfs:
+            cmd += f" --rootfs {rootfs}"
         if hwserver:
             cmd += f" --hw_server-url {hwserver}:3121"
 
@@ -634,10 +718,12 @@ class Petalinux(Basebuild):
         self.runner.runcmd(f"cd {self.proj_dir}")
         self.runner.runcmd(cmd=str(cmd), timeout=3600)
 
-    def _run_qemu_boot(self, cmd, proj_path=None, qemu_args=None):
-        """ This function create petalinux qemu boot command """
+    def _run_qemu_boot(self, cmd, proj_path=None, qemu_args=None, rootfs=None):
+        """This function create petalinux qemu boot command"""
         if proj_path:
             self.proj_dir = proj_path
+        if rootfs:
+            cmd += f" --rootfs {rootfs}"
         if qemu_args:
             cmd += f" {qemu_args}"
 
@@ -649,7 +735,13 @@ class Petalinux(Basebuild):
         self.runner.sendline(cmd=str(cmd))
 
     def plnx_boot(
-        self, boottype=None, proj_path=None, hwserver=None, bitfile=None, qemu_args=None
+        self,
+        boottype=None,
+        proj_path=None,
+        hwserver=None,
+        bitfile=None,
+        qemu_args=None,
+        rootfs=None,
     ):
         if boottype not in ("prebuilt 2", "prebuilt 3", "kernel", "uboot"):
             raise Exception(
@@ -659,10 +751,10 @@ class Petalinux(Basebuild):
 
         if hwserver:
             cmd = f"petalinux-boot --jtag -v --{boottype}"
-            self._run_boot(cmd, proj_path, hwserver, bitfile)
+            self._run_boot(cmd, proj_path, hwserver, bitfile, rootfs)
         else:
             cmd = f"petalinux-boot --qemu --{boottype}"
-            self._run_qemu_boot(cmd, proj_path, qemu_args)
+            self._run_qemu_boot(cmd, proj_path, qemu_args, rootfs)
 
     def __del__(self):
         """This function deletes the petalinux project created under TEMP path.
@@ -673,7 +765,7 @@ class Petalinux(Basebuild):
         >>> skip_clean_temp = true
 
         """
-        if get_var(self.config, "skip_clean_temp"):
+        if self.config.get("skip_clean_temp"):
             log.info("INFO: Skipped petaliux project temp clean...")
         else:
             if self.plnx_tmp:
@@ -684,12 +776,113 @@ class Petalinux(Basebuild):
             self.runner.sendcontrol("a")
             self.runner.sendline("x")
 
+    def devtool(self, operation, timeout=12000):
+        """This function performs petalinux-devtool options"""
+        self.source_tool()
+        self.create_project()
+        if operation == "add":
+            self.runner.runcmd(
+                cmd=f" petalinux-devtool {operation} {self.recipe_name}  {self.fetchuri}",
+                timeout=2000,
+            )
+        elif operation == "modify":
+            self.runner.runcmd(
+                cmd=f" petalinux-devtool {operation} {self.existing_recipename} ",
+                timeout=1000,
+            )
+        elif operation == "upgrade":
+            self.runner.runcmd(
+                cmd=f" petalinux-devtool {operation} {self.recipe_upgrade}",
+                timeout=2000,
+            )
+        elif operation in ("status", "export"):
+            self.runner.runcmd_list(
+                cmd_list=[
+                    f"petalinux-devtool add {self.recipe_name} {self.fetchuri}",
+                    f"petalinux-devtool {operation}",
+                ],
+                timeout=600,
+            )
+        elif operation in (
+            "latest-version",
+            "check-upgrade-status",
+            "search",
+            "build",
+            "find-recipe",
+            "configure-help",
+            "update-recipe",
+            "configure",
+        ):
+            self.runner.runcmd_list(
+                cmd_list=[
+                    f"petalinux-devtool add {self.recipe_name} {self.fetchuri}",
+                    f"petalinux-devtool {operation} {self.recipe_name}",
+                ],
+                timeout=2000,
+            )
+        elif operation == "rename":
+            self.runner.runcmd_list(
+                cmd_list=[
+                    f"petalinux-devtool add {self.recipe_name} {self.fetchuri}",
+                    f"petalinux-devtool {operation} {self.recipe_name}  {self.recipe_new_name}",
+                    f"petalinux-devtool search {self.recipe_new_name}",
+                ],
+                timeout=2000,
+            )
+        elif operation == "reset":
+            self.runner.runcmd_list(
+                cmd_list=[
+                    f"petalinux-devtool add {self.recipe_name} {self.fetchuri}",
+                    f" petalinux-devtool {operation}  {self.recipe_name} ",
+                    f"cd {self.source_path} && rm -rf {self.recipe_name}",
+                    f"cd && cd {self.workDir}/{self.plnx_proj}",
+                ],
+                timeout=2000,
+            )
+        elif operation == "finish":
+            self.runner.runcmd_list(
+                cmd_list=[
+                    f"petalinux-devtool add {self.recipe_name} {self.fetchuri}",
+                    f" petalinux-devtool {operation}  {self.recipe_name} {self.workDir}/{self.plnx_proj}/{self.recipe_destination}",
+                    f"cd {self.source_path} && rm -rf {self.recipe_name}",
+                    f"petalinux-devtool find-recipe {self.recipe_name}",
+                    f"cd && cd {self.workDir}/{self.plnx_proj}",
+                ],
+                timeout=2000,
+            )
+        elif operation == "build-image":
+            self.runner.runcmd(
+                cmd=f" petalinux-devtool {operation} {self.image_recipe}", timeout=2000
+            )
+        elif operation == "create-workspace":
+            self.runner.runcmd(
+                cmd=f" petalinux-devtool {operation} {self.workspace_layerpath}",
+                timeout=600,
+            )
+        elif operation == "import":
+            self.plnx_bsp = self.config["PLNX_BSP"]
+            self.runner.runcmd_list(
+                cmd_list=[
+                    f"petalinux-devtool add {self.recipe_name} {self.fetchuri}",
+                    f" petalinux-devtool export && cd ..",
+                    f"yes | petalinux-create -t project -s  {self.bsp_path}{self.plnx_bsp}",
+                    f"cd {self.plnx_proj} && petalinux-devtool {operation} {self.workDir}/{self.plnx_proj}.old/build/workspace-export-*tar.gz -o",
+                ],
+                timeout=600,
+            )
+        elif operation == "extract":
+            self.runner.runcmd(
+                cmd=f"petalinux-devtool {operation} {self.existing_recipename} {self.workspace_layerpath}",
+                timeout=2000,
+            )
+        elif operation == "--help":
+            self.runner.runcmd(cmd=f"petalinux-devtool {operation} ")
+
 
 def petalinux_build(config):
 
     plnx_builder = Petalinux(config)
     plnx_builder.configure()
-
     # create project
     plnx_builder.create_project()
 
@@ -697,27 +890,28 @@ def petalinux_build(config):
     plnx_builder.set_tmp_path()
 
     # apply external srcs
-    # plnx_builder.apply_external_component()
+    if "plnx" in config:
+        plnx_builder.apply_external_component()
 
     # apply hardware design
-    if has_key(config, "hw_design_path"):
+    if "hw_design_path" in config:
         plnx_builder.get_hwdesign()
 
     # set project configs
-    if has_key(config, "plnx_configs"):
+    if "plnx_configs" in config:
         plnx_builder.set_config()
 
-    if has_key(config, "apply_patches"):
+    if "apply_patches" in config:
         plnx_builder.apply_patch()
 
     # set device tree
-    if has_key(config, "plnx_user_dtsi_files"):
+    if "plnx_user_dtsi_files" in config:
         plnx_builder.update_dtsi_file()
-    if has_key(config, "plnx_user_dtsi_file"):
+    if "plnx_user_dtsi_file" in config:
         plnx_builder.link_dtsi_file()
 
     # App creation
-    if has_key(config, "user_apps"):
+    if "user_apps" in config:
         plnx_builder.silent_config()
         plnx_builder.create_apps()
 
@@ -728,12 +922,12 @@ def petalinux_build(config):
     plnx_builder.plnx_build()
 
     # build & extract sdk
-    if get_var(config, "build_sdk"):
+    if config.get("build_sdk"):
         plnx_builder.build_sdk()
         plnx_builder.extract_sdk()
 
     # create BOOT.bin
-    if has_key(config, "plnx_package_boot"):
+    if "plnx_package_boot" in config:
         if config["plnx_package_boot"]:
             plnx_builder.plnx_package_boot()
 
@@ -750,6 +944,7 @@ def petalinux_boot(
     hwserver=None,
     bitfile=None,
     qemu_args=None,
+    rootfs=None,
     setup=False,
 ):
     plnx_runner = Petalinux(config, setup=setup)
@@ -759,9 +954,9 @@ def petalinux_boot(
 
     if boottype in ("prebuilt 2", "prebuilt 3", "kernel", "uboot"):
         if boottype in ("prebuilt 2", "prebuilt 3"):
-            if not is_dir(plnx_runner.proj_dir):
+            if not is_dir(proj_path) and not is_dir(plnx_runner.proj_dir):
                 plnx_runner.create_project()
-        plnx_runner.plnx_boot(boottype, proj_path, hwserver, bitfile, qemu_args)
+        plnx_runner.plnx_boot(boottype, proj_path, hwserver, bitfile, qemu_args, rootfs)
     else:
         log.info(
             """Invalid petalinux boot type selected

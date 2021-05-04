@@ -67,10 +67,9 @@ class Ethernet:
         self.eth_interface = eth_interface
         self.terminal.prompt = "~# "
         self.terminal._setup_init()
-        if config["user"]:
-            self.user = config["user"]
-        if config["password"]:
-            self.password = config["password"]
+        self.user = config.get("user")
+        self.password = config.get("password")
+        self.targetIp = config.get("targetIp")
 
     def _setip_config(self, config):
         self.config = config

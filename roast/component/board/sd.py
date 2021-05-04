@@ -5,7 +5,6 @@
 
 import socket
 import time
-from roast.utils import get_var, has_key
 from roast.serial import Serial
 from roast.component.xsdb.xsdb import Xsdb
 
@@ -86,26 +85,52 @@ def scp(board):
 
 def nfs_mount(board):
     """This method performs nfsmount based on the directory path given in
-    systest_nw_shared_path and copies them to /mnt
+    systest_nw_shared_path to /nfsroot
     Parameters:
         board : object of Board class
         systest_nw_shared_path : image directory path to be mounted on SD
-    >>> Usage:
-        sd_boot_artifacts = ['boot.scr', 'BOOT.BIN', 'image.ub', 'system.dtb']
     """
     linuxcons = board.serial
     linuxcons.runcmd("mkdir -p /nfsroot")
     umount(linuxcons, "/nfsroot")
-    ip_address = socket.gethostbyname(board.systest_host)
+    ip_address = socket.gethostbyname(board.systest.systest_host)
     linuxcons.runcmd(
         "[ ! -z $(which mount.nfs) ] && \
             chmod 755 $(which mount.nfs) || echo 'mount.nfs not found'"
     )
-    cmd = f"mount -o port=2049,nolock,proto=tcp,vers=2 {ip_address}:/exports/root /nfsroot"
+    cmd = f"mount -t nfs -o nolock,proto=tcp,port=2049 10.10.70.101:/exports/root /nfsroot"
     linuxcons.runcmd(cmd)
+
+
+def copy_sd_boot_artifacts(board):
+    """This method performs images copying into /mnt from nfsmount /nfsroot path
+    Parameters:
+        board : object of Board class
+    >>> Usage:
+        sd_boot_artifacts = ['boot.scr', 'BOOT.BIN', 'image.ub', 'system.dtb']
+    """
+    linuxcons = board.serial
     for image in board.config["sd_boot_artifacts"]:
-        linuxcons.runcmd(f"cp /nfsroot/{image} /mnt")
+        linuxcons.runcmd(f"cp /nfsroot/{image} /mnt -r")
     linuxcons.runcmd(f"sync")
+
+
+def flash_binaries(board, sd_device, binaries=None):
+    """This method performs flashing wic image to SD/eMMC from nfsmount based on the directory path given in
+     systest_nw_shared_path.
+     Parameters:
+         board : object of Board class
+         sd_device : the return value of find_sdmount_point
+         binaries : List of binaries to be flased
+    >>> Usage:
+         flash_binaries(board, sd_device, config['petalinux-sdimage.wic']
+    """
+
+    linuxcons = board.serial
+    for image in binaries:
+        linuxcons.runcmd(f"dd if=/nfsroot/{image} of={sd_device}", timeout=1200)
+    umount(linuxcons, "/nfsroot")
+    linuxcons.runcmd("df -h")
 
 
 def fat32(board, sd_device, partition_size="500"):
@@ -125,7 +150,7 @@ def fat32(board, sd_device, partition_size="500"):
     umount(linuxcons, f"{sd_device}p2")
 
     cmdlist = [
-        f"dd if=/dev/zero of={sd_device} bs=1024 count=4",
+        f"dd if=/dev/zero of={sd_device} bs=1024 count=1024",
         f"echo -e 'p\nn\np\n1\n\n+{partition_size}M\nw\n' | fdisk {sd_device}",
         f"mkdir -p /mnt;mkfs.vfat -F 32 -n boot {sd_device}p1",
     ]
@@ -134,10 +159,11 @@ def fat32(board, sd_device, partition_size="500"):
     cmdlist = [f"mount {sd_device}p1 /mnt", "df -h", "cd /mnt"]
     linuxcons.runcmd_list(cmdlist)
 
-    if get_var(board.config, "copy_method") == "scp":
+    if board.config.get("copy_method") == "scp":
         scp(board)
     else:
         nfs_mount(board)
+        copy_sd_boot_artifacts(board)
 
     cmdlist = ["ls -alt /mnt", "cd /", "umount /mnt", "sync"]
 
@@ -180,10 +206,11 @@ def ext(board, sd_device, partition="ext4", partition_size="500", timeout=900):
         "rm -rf *",
     ]
     linuxcons.runcmd_list(cmdlist)
-    if get_var(board.config, "copy_method") == "scp":
+    if board.config.get("copy_method") == "scp":
         scp(board)
     else:
         nfs_mount(board)
+        copy_sd_boot_artifacts(board)
     cmdlist = [
         "ls -alt /mnt",
         "cd /",
@@ -216,6 +243,7 @@ def copy_rootfs(board, timeout):
 
 
 def zynqmp_bootmode_sd(board, boot_device):
+    board.xsdb.connect()
     addr_dict = {"SD": {"0xff5e0200": "0xE100"}, "MMC": {"0xff5e0200": "0x6100"}}
     board.xsdb.set_proc("PSU")
     time.sleep(2)
@@ -227,12 +255,20 @@ def zynqmp_bootmode_sd(board, boot_device):
     time.sleep(2)
     board.xsdb.runcmd("con")
     time.sleep(2)
+    board.xsdb.disconnect()
 
 
 def sd_prep_fat32(board, boot_device="SD"):
     is_sd(board)
     sd_device = find_sdmount_point(board, boot_device)
     fat32(board, sd_device)
+
+
+def sd_flash_wic(board, boot_device="SD"):
+    is_sd(board)
+    sd_device = find_sdmount_point(board, boot_device)
+    nfs_mount(board)
+    flash_binaries(board, sd_device, board.config["wic_image_name"])
 
 
 def sd_prep_ext4(board, boot_device="SD"):
@@ -242,6 +278,7 @@ def sd_prep_ext4(board, boot_device="SD"):
 
 
 def sd_boot(board, boot_device="SD"):
+    bootmode_cmd = {"SD": "sd1_ls", "MMC": "emmc"}
     board.serial.mode = True
     board.systest.reboot()
     if not board.xsdb:
@@ -253,10 +290,10 @@ def sd_boot(board, boot_device="SD"):
         board.serial.mode = True
         board.systest.reset()
     elif board.config["platform"] == "zynqmp":
-        if has_key(board.config, "bootmode_tcl"):
+        if "bootmode_tcl" in board.config:
             board.xsdb.run_tcl(f"{board.config['bootmode_tcl']}")
         else:
             zynqmp_bootmode_sd(board, boot_device)
 
     elif board.config["platform"] == "versal":
-        board.systest.runcmd("bootmode 'sd1_ls'")
+        board.systest.runcmd(f"bootmode '{bootmode_cmd[boot_device]}'")

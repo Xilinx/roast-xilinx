@@ -97,7 +97,7 @@ class AppBuilder(Basebuild):
         If path not set in configuration, use config.yaml included in library.
         """
 
-        if has_key(self.config, "XSCT_CONFIG"):
+        if "XSCT_CONFIG" in self.config:
             xsct_path = self.config["XSCT_CONFIG"]
         else:
             dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -114,10 +114,20 @@ class AppBuilder(Basebuild):
         If scriptsDir is not specified in config, use this file's directory.
         """
 
-        if not has_key(self.config, "scriptsDir"):
+        if "scriptsDir" not in self.config:
             self.config["scriptsDir"] = os.path.dirname(os.path.realpath(__file__))
 
-        if has_key(self.config, "extra_xsct_env"):
+        # Set toolchain in env, default=linaro
+        if self.config.get("XSCT_TOOLCHAIN") == "armcc":
+            self.console.runcmd(f"export XSCT_TOOLCHAIN=armcc")
+            self.console.runcmd(
+                f"export ARMLMD_LICENSE_FILE={self.config['ARMLMD_LICENSE_FILE']}"
+            )
+            self.console.runcmd(
+                f"export PATH={self.config['ARMCC_BIN_PATH']}" + ":$PATH"
+            )
+
+        if "extra_xsct_env" in self.config:
             if isinstance(self.config["extra_xsct_env"], list):
                 self.extra_env.extend(self.config["extra_xsct_env"])
             else:
@@ -132,7 +142,7 @@ class AppBuilder(Basebuild):
         If path not set in configuration, use defconfig.yaml included in library.
         """
 
-        if has_key(self.config, "DEFAULT_XSCT_CONFIG"):
+        if "DEFAULT_XSCT_CONFIG" in self.config:
             defconfig_path = self.config["DEFAULT_XSCT_CONFIG"]
         else:
             dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -231,6 +241,15 @@ class AppBuilder(Basebuild):
         parser.add_argument(
             "--build_till_bsp", default="0", choices=["0", "1"], help="Build bsp only"
         )
+        parser.add_argument(
+            "--use_hypervisor", default="0", choices=["0", "1"], help="Use Hypervisor"
+        )
+        parser.add_argument(
+            "--iar_compilation",
+            default="0",
+            choices=["0", "1"],
+            help="Perform IAR Compilation",
+        )
 
         args = parser.parse_args(argv)
         # Fixme: convert args to type class dict before retunring it
@@ -259,104 +278,120 @@ class AppBuilder(Basebuild):
 
     def parser(self, config):
         args = {}
-        if has_key(config, "do_compile"):
+        if "do_compile" in config:
             args["do_compile"] = config["do_compile"]
         else:
             args["do_compile"] = 1
-        if has_key(config, "do_cleanup"):
+        if "do_cleanup" in config:
             args["do_cleanup"] = config["do_cleanup"]
 
-        if has_key(config, "extension"):
+        if "extension" in config:
             args["extension"] = config["extension"]
 
-        if has_key(config, "xsct_proj_name"):
+        if "xsct_proj_name" in config:
             args["pname"] = config["xsct_proj_name"]
 
-        if has_key(config, "xsct_proc_name"):
+        if "xsct_proc_name" in config:
             args["processor"] = self.map_procname(config["xsct_proc_name"])
 
-        if has_key(config, "XSCT_PATH"):
+        if "XSCT_PATH" in config:
             args["xsct_path"] = config["XSCT_PATH"]
 
-        if has_key(config, "xsct_os_name"):
+        if "xsct_os_name" in config:
             args["osname"] = config["xsct_os_name"]
 
-        if has_key(config, "xsct_xsa"):
+        if "xsct_xsa" in config:
             args["hdf"] = config["xsct_xsa"]
 
-        if has_key(config, "xsct_app_name"):
+        if "xsct_app_name" in config:
             args["app"] = config["xsct_app_name"]
 
-        if has_key(config, "xsct_platform_name"):
+        if "xsct_platform_name" in config:
             args["hwpname"] = config["xsct_platform_name"]
 
-        if has_key(config, "build_till_bsp"):
+        if "build_till_bsp" in config:
             args["build_till_bsp"] = config["build_till_bsp"]
         else:
             args["build_till_bsp"] = 0
 
-        if has_key(config, "extra_args"):
+        if "extra_args" in config:
             args["extra_args"] = config["extra_args"]
         else:
             args["extra_args"] = None
 
-        if has_key(config, "xsct_outDir"):
+        if "xsct_outDir" in config:
             args["out_dir"] = config["xsct_outDir"]
         else:
-            args["out_dir"] = f"{self.wsDir}/images"
+            args["out_dir"] = f"{config.wsDir}/images"
 
-        if has_key(config, "xsct_elf_name"):
+        if "xsct_elf_name" in config:
             args["elf_name"] = config["xsct_elf_name"]
 
-        if has_key(config, "xsct_lib"):
+        if "xsct_lib" in config:
             args["lib"] = config["xsct_lib"]
 
-        if has_key(config, "xsct_library_name"):
+        if "xsct_library_name" in config:
             args["library_name"] = config["xsct_library_name"]
 
-        if config["xsct_import_sources"]:
+        if "xsct_import_sources" in config:
             args["import_sources"] = config["xsct_import_sources"]
 
-        if config["xsct_import_args"]:
+        if "xsct_import_args" in config:
             args["import_args"] = config["xsct_import_args"]
 
-        if has_key(config, "xsct_thirdparty_name"):
+        if "xsct_thirdparty_name" in config:
             args["thirdparty_name"] = config["xsct_thirdparty_name"]
 
-        if has_key(config, "xsct_thirdparty_dir"):
+        if "xsct_use_hypervisor" in config:
+            args["use_hypervisor"] = config["xsct_use_hypervisor"]
+
+        if "xsct_thirdparty_dir" in config:
             args["thirdparty_dir"] = config["xsct_thirdparty_dir"]
 
-        if has_key(config, "xsct_extention_tcl"):
+        if "xsct_extention_tcl" in config:
             if config["xsct_extention_tcl"]:
                 args["extension"] = config["xsct_extention_tcl"]
 
-        if has_key(config, "component"):
+        if "component" in config:
             args["component"] = config["component"]
 
-        if has_key(config, "xsct_driver"):
+        if "rp_intg" in config:
+            args["rp_intg"] = config["rp_intg"]
+
+        if "xsct_driver" in config:
             args["driver"] = config["xsct_driver"]
 
-        if has_key(config, "xsct_example_name"):
+        if "iar_compilation" in config:
+            args["iar_compilation"] = config["iar_compilation"]
+
+        if "xsct_example_name" in config:
             args["example_name"] = config["xsct_example_name"]
 
-        if has_key(config, "repo_exists") and config["repo_exists"] == 1:
-            args["rp"] = f"{self.workDir}/src/"
+        if "repo_exists" in config and config["repo_exists"] == 1:
+            args["rp"] = f"{config.workDir}/src/"
         else:
-            if config["externalEmbeddedsw"]:
-                args["rp"] = config["externalEmbeddedsw"]
+            if config.get("external_embeddedsw"):
+                if is_dir(config["external_embeddedsw"]):
+                    args["rp"] = config["external_embeddedsw"]
+                else:
+                    raise Exception(
+                        f"ERROR: {config['external_embeddedsw']} does not exist"
+                    )
 
-        args["ws"] = f"{self.workDir}/{config['component']}/"
+        args["ws"] = f"{config.workDir}/{config['component']}/"
 
+        if "XSCT_HYPERVISOR" in config:
+            self.console.runcmd(f"export XSCT_HYPERVISOR={config['XSCT_HYPERVISOR']}")
         dir_path = os.path.dirname(os.path.realpath(__file__))
         self.console.runcmd(f"export SCRIPTS_PYTHON={dir_path}")
-        self.console.runcmd(f"export test_log_path={self.wsDir}/logs")
-        self.console.runcmd(f"export test_work_path={self.wsDir}/work")
-        self.console.runcmd(f"export test_image_path={self.wsDir}/images")
+        self.console.runcmd(f"export test_log_path={config.wsDir}/logs")
+        self.console.runcmd(f"export test_work_path={config.wsDir}/work")
+        self.console.runcmd(f"export test_image_path={config.wsDir}/images")
 
-        if has_key(config, "BUILD_SOURCE"):
+        if "BUILD_SOURCE" in config:
             self.console.runcmd(f"export BUILD_SOURCE={config['BUILD_SOURCE']}")
 
-        if has_key(config, "usr_src_path"):
+        if "usr_src_path" in config:
             self.console.runcmd(f"export usr_src_path={config['usr_src_path']}")
 
         return args
@@ -365,7 +400,7 @@ class AppBuilder(Basebuild):
         # Extra args might be present in config file
         appconfig = self.get_config_var()["APP_CONFIG"]
         bspconfig = self.get_config_var()["BSP_CONFIG"]
-        yaml_file_path = os.path.join(self.workDir, "yamlconf.yaml")
+        yaml_file_path = os.path.join(self.config.workDir, "yamlconf.yaml")
 
         if verify_extra_args(args["extra_args"]):
             if write_extra_args_to_yaml_conf(
@@ -389,11 +424,20 @@ class AppBuilder(Basebuild):
             if value is not None and value != "":
                 arg_dict[arg] = value
 
+        # Check for vitisPath mandatory args
+        if not is_dir(self.config["vitisPath"]):
+            raise Exception(f"Error: ({self.config['vitisPath']}) is not a directory")
+
+        if not is_file(f"{self.config['vitisPath']}/bin/xsct"):
+            raise Exception(
+                f"Error: ({self.config['vitisPath']}/bin/xsct) is not a valid file"
+            )
+
         # Collect few mandatory args
         if "xsct_path" not in arg_dict:
-            arg_dict["xsct_path"] = self.config["xsctCmd"]
+            arg_dict["xsct_path"] = f"{self.config['vitisPath']}/bin/xsct"
         if "rp" not in arg_dict:
-            arg_dict["rp"] = self.config["ESW_REPO"]
+            arg_dict["rp"] = f"{self.config['vitisPath']}/data/embeddedsw"
 
         # Collect the params from the default settings
         component = arg_dict["component"]
@@ -419,10 +463,15 @@ class AppBuilder(Basebuild):
                     str2 = surround_double_quotes(str(value))
                     cmd += str1 + " " + str2 + " "
 
-        dir_path = os.path.dirname(os.path.realpath(__file__))
-        app_path = os.path.join(dir_path, self.config["APP_TCL"])
+        if "APP_TCL" in self.config:
+            app_path = self.config["APP_TCL"]
+        else:
+            dir_path = os.path.dirname(os.path.realpath(__file__))
+            app_path = os.path.join(dir_path, "scout_app.tcl")
 
-        cmd = str(user_var_dict["xsct_path"]) + " " + app_path + " " + cmd + " "
+        cmd = app_path + " " + cmd + " "
+        if self.config.get("iar_compilation") != "1":
+            cmd = str(user_var_dict["xsct_path"]) + " " + cmd
 
         if self.get_config_file():
             cmd += "-yamlconf" + " " + surround_double_quotes(self.get_yaml_file())
@@ -451,29 +500,85 @@ class AppBuilder(Basebuild):
     def get_cmd(self):
         return self.cmd
 
+    def clone_esw(self, args):
+        self.esw_path = os.path.join(self.config["sharedWs"], "embeddedsw")
+        if (
+            self.config["XSCT_BUILD_SOURCE"] == "git"
+            and not self.config["external_embeddedsw"]
+            and not self.config["repo_exists"]
+        ):
+            mkdir(self.config["sharedWs"])
+            args["rp"] = self.esw_path
+            clone(
+                self.config.git.embeddedsw,
+                self.esw_path,
+                clone_once=True,
+            )
+        elif self.config.get("external_embeddedsw"):
+            # Get log prints when external esw is given
+            git = Git(
+                self.config.git.embeddedsw,
+                self.config.external_embeddedsw,
+                True,
+            )
+            log.info("Using external embeddedsw")
+            git.log()
+        return args
+
     def build_app(self, config) -> bool:
+
+        cmd = ""
+        if config.get("iar_compilation") != "1":
+            self.console.runcmd("unset DISPLAY")
 
         self.set_cmd()
         cmd = self.get_cmd()
-        log.info(f"APP.TCL COMMAND: {cmd}")
 
-        if has_key(config, "source_cardano") and config["source_cardano"] == 1:
+        if config.get("iar_compilation") == "1":
+            xtfci_path = f"{config.wsDir}/work"
+            if not is_file(xtfci_path + "/xtfci.py"):
+                os.system(
+                    f"wget https://raw.gitenterprise.xilinx.com/regressions/xtfci/master/xtfci.py -P {xtfci_path}"
+                )
+            from roast.component import iar
 
-            CARDANO_ROOT = config["CARDANO_ROOT"]
-            self.console.runcmd(f"export CARDANO_ROOT={CARDANO_ROOT}")
-            self.console.runcmd(f"source {CARDANO_ROOT}/scripts/cardano_env.sh")
+            result = iar.run_iar(
+                self.config["component"],
+                cmd,
+                f"{config.workDir}",
+                f"{config.wsDir}/images",
+                self.config,
+            )
+            if result:
+                return True
+            else:
+                return False
 
-        self.console.runcmd("unset DISPLAY")
+        print_msg("APP.TCL COMMAND")
+        print_msg("*******************************************")
+        print_msg(cmd)
+        print_msg("*******************************************")
+        print_msg("")
+
+        self.console.runcmd(
+            f"export XSDK_DEFAULT_TRACE={config.get('XSDK_DEFAULT_TRACE', '')}"
+        )
         self.console.runcmd(
             f"export _JAVA_OPTIONS='-Duser.home={config['workDir']}/.xsct'"
         )
-        self.console.runcmd(cmd, timeout=1500)
-        if config["build_till_bsp"] or check_if_string_in_file(
-            f"{self.wsDir}/images/results.txt", "PASS"
+
+        try:
+            self.console.runcmd(cmd, timeout=1500)
+        except Exception as e:
+            err_msg = "ELF creation Failed"
+            raise Exception(f"ERROR: {err_msg}")
+
+        if config.get("build_till_bsp", 0) or check_if_string_in_file(
+            f"{config.wsDir}/images/results.txt", "PASS"
         ):
             return True
         else:
-            self.console.logfile.error("ELF creation Failed")
+            log.error("ELF creation Failed")
             return False
 
 
@@ -481,5 +586,6 @@ def xsct_builder(config, setup=True):
     builder = AppBuilder(config, setup=setup)
     builder.configure()
     args = builder.parser(config)
+    args = builder.clone_esw(args)
     builder.set_user_args(args)
     return builder.build_app(config)

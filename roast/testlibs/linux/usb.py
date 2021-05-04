@@ -10,11 +10,12 @@ from roast.testlibs.linux.fileops import FileOps
 from roast.testlibs.linux.hdparm import HdParm
 from roast.testlibs.linux.iozone import IoZone
 from roast.testlibs.linux.bonnieplusplus import BonniePlusPlus
+from roast.testlibs.linux.dts import DtsLinux
 
 log = logging.getLogger(__name__)
 
 
-class UsbLinux(BonniePlusPlus, IoZone, HdParm, FileOps, BaseLinux):
+class UsbLinux(BonniePlusPlus, IoZone, HdParm, FileOps, BaseLinux, DtsLinux):
     def __init__(self, console, config):
         super().__init__(console, config)
 
