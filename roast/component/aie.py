@@ -6,7 +6,7 @@
 import time
 import sys
 from roast.component.board.boot import load_pdi, is_linux, linuxcons
-from roast.utils import is_file, copyDirectory
+from roast.utils import is_file, copyDirectory, get_original_path
 from roast.component.cardano import check_cardano
 
 
@@ -61,37 +61,36 @@ def run_aie_demo(board):
         )
 
 
-def run_linux_app(board):
+def copy_linux_app(board):
     test = board.config["test"]
     src_file = f"{board.config['imagesDir']}/deploy_artifacts.tar.xz"
-    if not is_file(src_file):
-        print(f"ERROR: No Such File {src_file}", file=sys.stderr)
-        raise Exception("Build test Failed")
     board.put(src_file, "~/")
     # board.serial.terminal.interact()
 
     board.serial.runcmd(f"mkdir -p ~/{test}")
     cmd_list = [f"tar xvf deploy_artifacts.tar.xz -C {test}/", f"cd {test}"]
     board.serial.runcmd_list(cmd_list)
-    # Load pdi through fpga manager if present
-    if board.config["cardano_app"]:
-        # Reset AIE Array
-        board.serial.runcmd("../reset-aie.run", expected="Resetting AIE Array Done.")
 
-        board.serial.runcmd("echo 1 >  /sys/class/fpga_manager/fpga0/flags")
-        board.serial.runcmd("cp boot.pdi /lib/firmware/")
-        board.serial.runcmd(
-            "echo boot.pdi > /sys/class/fpga_manager/fpga0/firmware",
-            expected=["Subsystem PDI Load: Done"],
-        )
 
+def run_linux_app(board):
+    test = board.config["test"]
     wait_for_prompt = False if test == "clock_gating" else True
     try:
+        if board.config.get("cardano_app"):
+            cmd = "./aie_control_xrt.run ./aie_xrt.xclbin"
+        else:
+            cmd = "./aie_control.run"
+
         board.serial.runcmd(
-            "time ./aie_control.run",
+            cmd,
             wait_for_prompt=wait_for_prompt,
-            expected=["SUCCESS", "Killed", "Kernel panic"],
-            expected_failures=["FAILED", "Segmentation fault", "Aborted"],
+            expected=board.config.get("expected_str", "SUCCESS"),
+            expected_failures=[
+                "FAILED",
+                "Segmentation fault",
+                "Aborted",
+                "Device open error",
+            ],
         )
     except Exception as err:
         # Reset console to normal state for consecutive tests
@@ -101,6 +100,10 @@ def run_linux_app(board):
 
 def copy_linux_test_images(config, test):
     linux_images = f"{config['buildDir']}/{config['machine']}/{test}/linux/images/"
+    src_file = f"{linux_images}/deploy_artifacts.tar.xz"
+    if not is_file(src_file):
+        print(f"ERROR: No Such File {src_file}", file=sys.stderr)
+        raise Exception("Build test Failed")
     copyDirectory(linux_images, config["imagesDir"])
     check_cardano(config)
 
@@ -109,11 +112,14 @@ def petalinux_aie_boot(config, board_session, boottype):
     config["plnx_proj"] = config["PLNX_BSP"]
     config["load_interface"] = "petalinux"
     config["boottype"] = boottype
-    config["board_init_files"] = {
-        # "~/reset-aie.run": [
-        #    f"{config['buildDir']}/{config['machine']}/reset_aie/linux/images/aie_control.run"
-        # ]
-    }
+    config["board_init_files"] = {}
+    plnx_bsp_path = get_original_path(f"{config.BSP_PATH}/{config.PLNX_BSP}")
+
+    # check for PLNX BSP before acquiring board
+    if not is_file(plnx_bsp_path):
+        print(f"Petalinux BSP {plnx_bsp_path} Not found", file=sys.stderr)
+        raise Exception("Petalinux BSP Not found")
+
     if boottype == "kernel":
         config[
             "plnx_proj_path"

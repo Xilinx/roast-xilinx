@@ -52,7 +52,7 @@ class HwbuildRunner(Basebuild):
     def _setup(self):
         if self.hwflow_ver == "2.0":
             self.hwflow2_0 = True
-            if has_key(self.config, "hwflow_local"):
+            if "hwflow_local" in self.config:
                 self.source = {"file": self.config["hwflow_local"]}
                 self._local_hw()
             else:
@@ -74,12 +74,12 @@ class HwbuildRunner(Basebuild):
             if self.lsf_mode is True:
                 self._setup_lsf_command()
 
-            if has_key(self.config, "design_src"):
+            if "design_src" in self.config:
                 self.source = self.config["design_src"]
 
-                if has_key(self.source, "file"):
+                if "file" in self.source:
                     self._local_hw()
-                elif has_key(self.source, "git"):
+                elif "git" in self.source:
                     self._clone_hw()
 
         self.cwd = self.design_path
@@ -108,11 +108,11 @@ class HwbuildRunner(Basebuild):
 
         url = self.source["git"]
         branch = "master"  # Default branch to master
-        if has_key(self.source, "branch"):
+        if "branch" in self.source:
             branch = self.source["branch"]  # override user branch
 
         rev = ""  # Default rev value
-        if has_key(self.source, "rev"):
+        if "rev" in self.source:
             rev = self.source["rev"]
 
         design_name = url.split("/").pop().split(".git", 1)[0]
@@ -123,7 +123,7 @@ class HwbuildRunner(Basebuild):
         else:
             self.design_path = os.path.join(self.workDir, design_name)
             git_clone(url, self.design_path, branch)
-            if get_var(self.config, "design_relative_path"):
+            if self.config.get("design_relative_path"):
                 self.design_path = (
                     f"{self.design_path}/{self.config.design_relative_path}"
                 )
@@ -181,7 +181,7 @@ class HwbuildRunner(Basebuild):
 
         elif is_file(self.design_script) == True:
             build_cmd = f"{self.vivado} -mode batch -source {self.design_script}"
-            if has_key(self.config, "design_args"):
+            if "design_args" in self.config:
                 build_cmd = f"{build_cmd} {self.config['design_args']}"
 
             if self.lsf_mode is True:
@@ -202,7 +202,7 @@ class HwbuildRunner(Basebuild):
             log.info(f"Check design artifacts in {self.workDir}")
             ret = True
 
-            if has_key(self.config, "artifacts"):
+            if "artifacts" in self.config:
                 artifacts = self.config["artifacts"]
 
                 for image in artifacts:
@@ -218,7 +218,7 @@ class HwbuildRunner(Basebuild):
             if ret == False:
                 raise Exception("ERROR: Failed to deploy artifacts")
 
-        if has_key(self.config, "deploy_dir"):
+        if "deploy_dir" in self.config:
             deploy_dir = self.config["deploy_dir"]
             if not is_dir(deploy_dir):
                 mkdir(deploy_dir)
@@ -244,7 +244,7 @@ class HwbuildRunner(Basebuild):
         if is_file(xsa_path) == False:
             log.error("xsa not found in the design artifacts")
             return False
-        if has_key(self.config, "artifacts"):
+        if "artifacts" in self.config:
             artifacts = self.config["artifacts"]
 
             os.chdir(design_path)
@@ -298,6 +298,8 @@ class HWFlow(HwbuildRunner):
         self._randomizer = Randomizer(seed=self.seed)
         self._randomizer.add_provider(HWFlowProvider)
         self.randomizer = self._randomizer.hwflow_provider
+        self.last_get_node = None
+        self.last_get_ip_name = None
 
     def build(self):
         design_script_dir = os.path.dirname(self.design_script)
@@ -333,7 +335,40 @@ class HWFlow(HwbuildRunner):
         node_obj = nodes[_top_ip]["node_obj"]
         for attr in ip_list[1:]:
             node_obj = getattr(node_obj, attr)
+        self.last_get_node = node_obj
+        self.last_get_ip_name = ip
         return node_obj
+
+    def get_node_attr(self, node, attr, *args):
+        def _getattr(node, attr):
+            return getattr(node, attr, *args)
+
+        it = iter([node] + attr.split("."))
+        value = next(it)
+        for item in it:
+            value = _getattr(value, item)
+        return value
+
+    def set_node_attr(self, node, attr, value):
+        pre, _, post = attr.rpartition(".")
+        return setattr(self.get_node_attr(node, pre) if pre else node, post, value)
+
+    def set_node_property(self, property_name, value, node=False, ip_name=None):
+        _node = node if node else self.last_get_node
+        _ip_name = ip_name if ip_name else self.last_get_ip_name
+        current_value = self.get_node_attr(_node, property_name)
+        if property_name != "val":
+            current_value = self.get_node_attr(_node, property_name).val
+        if current_value != value:
+            log.debug(f"{_ip_name}.{property_name}={value} was {current_value}")
+            self.set_node_attr(_node, property_name, value)
+
+    def set_simple_node_property(self, value, node=False, ip_name=None):
+        self.set_node_property("val", value, node, ip_name)
+
+    def update_node_property(self, property_name, value):
+        self.get_node_object(property_name)
+        self.set_simple_node_property(value)
 
     def get_width_object(self, obj):
         if obj.parent().type.val == "AXI_EXERCISER":

@@ -20,7 +20,6 @@ dtb_loadaddr = 0x100000
 uboot_defconfig = "xilinx_zynq_virt_defconfig"
 uboot_artifacts = ["u-boot.elf"]
 
-boot_scr_path = "{dataDir}/scr"
 boot_scr_loadaddr = 0x3000000
 
 rootfs_loadaddr = 0x4000000

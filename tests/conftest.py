@@ -9,7 +9,9 @@ from shutil import rmtree
 
 
 @pytest.fixture(scope="function")
-def build_dir(tmpdir):
+def build_dir(request, tmpdir):
+    rootdir = request.config.rootdir.strpath
     buildDir = os.path.join(tmpdir, "build")
     yield buildDir
     rmtree(buildDir)
+    os.chdir(rootdir)

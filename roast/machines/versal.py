@@ -26,7 +26,6 @@ atf_compile_flags = "RESET_TO_BL31=1 PLAT=versal bl31 VERSAL_PLATFORM=silicon \
 BUILD_BASE=../atf-build"
 
 # Boot scr
-boot_scr_path = "{dataDir}/scr"
 boot_scr_loadaddr = 0x20000000
 
 rootfs_loadaddr = 0x30000000

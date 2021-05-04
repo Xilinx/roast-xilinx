@@ -9,7 +9,7 @@ import logging
 from collections import namedtuple
 from roast.xexpect import Xexpect
 from roast.component.basebuild import Basebuild
-from roast.utils import has_key, is_file, copy_file, remove
+from roast.utils import is_file, copy_file, remove
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ Block = namedtuple("Block", ["header", "components"])
 
 def bifstring(bifstr: str, value: str, config) -> str:
     # Get the design name
-    if has_key(config, "designs"):
+    if "designs" in config:
         design = config["designs"].split("/")[-2]
 
     if re.search(r"ext=", value):
@@ -90,11 +90,11 @@ def generate_bif(config, format_type: str) -> None:
             biffile.write("new_bif:\n{\n")
             id_code = "0x04ca8093"
             extended_id_code = "0x01"
-            if has_key(config, "id_code"):
+            if "id_code" in config:
                 id_code = config["id_code"]
-            if has_key(config, "extended_id_code"):
+            if "extended_id_code" in config:
                 extended_id_code = config["extended_id_code"]
-            if has_key(config, "bootheader"):
+            if "bootheader" in config:
                 if "{{" in config["bootheader"]:
                     biffile.write(config["bootheader"].format())
                 else:
@@ -226,7 +226,9 @@ def generate_pdi(config) -> None:
         config["pdiFile"],
     ]
     cmd = " ".join(bootgen_cmd)
-    console.runcmd(cmd, expected="Bootimage generated successfully")
+    console.runcmd(
+        cmd, expected="Bootimage generated successfully", wait_for_prompt=False
+    )
 
     if is_file(os.path.join(config["imagesDir"], config["pdiFile"])):
         log.info("PDI generated successfully")
@@ -258,7 +260,14 @@ def gen_boot_bin(config) -> None:
         config["binFile"],
     ]
     cmd = " ".join(bootgen_cmd)
-    console.runcmd(cmd, expected="Bootimage generated successfully")
+
+    if "BOOTGEN_ENV" in config:
+        for env in config["BOOTGEN_ENV"]:
+            console.runcmd(f"export {env}")
+
+    console.runcmd(
+        cmd, expected="Bootimage generated successfully", wait_for_prompt=False
+    )
 
     if is_file(os.path.join(config["imagesDir"], config["binFile"])):
         log.info("Bootable Image generate successful")

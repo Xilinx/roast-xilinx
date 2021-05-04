@@ -138,6 +138,19 @@ class FileOps:
         self.console.runcmd(f"ls -l {file_path} | awk '{{print $5}}'", expected="\r\n")
         return self.console.output()
 
+    def get_tftp_file(self, file_name, serverIp):
+        self.console.runcmd(f"tftp -g -r {file_name} {serverIp}")
+
+    def load_bitstream(self, bitstream_bin, dtbo_file, extra_options=""):
+        self.console.runcmd(
+            f"fpgautil -b {bitstream_bin} -o {self.boot_dt}/"
+            f"{dtbo_file} {extra_options}",
+            expected_failures=["failed with error", "Error:"],
+        )
+
+    def unload_bitstream(self):
+        self.console.runcmd(f"fpgautil -R")
+
     def get_partition_list(self, device_list):
         device_partitions_dict = {}
         for device in device_list:

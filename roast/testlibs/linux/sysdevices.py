@@ -21,9 +21,8 @@ class SysDevices:
             if not self.console.output():
                 log.info(f"No channels found for {dt_node}")
             else:
-                self.channels.extend(self.console.output().split("\n"))
-        self.channels = [
-            s.split("/")[-1].rstrip() for s in self.channels if "chan" in s
-        ]
+                if self.console.output():
+                    self.channels.extend(self.console.output().split("\n"))
+        self.channels = [s.split("/")[-1].rstrip() for s in self.channels]
 
         return self.channels

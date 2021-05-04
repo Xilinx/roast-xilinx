@@ -20,9 +20,9 @@ def dependency_list(driver_path, test_name, destination_path):
         if str(file) == "dependencies.props":
             with open(str(data_path) + "/dependencies.props") as f:
                 content = f.readlines()
-                content = [x.rstrip("\n") for x in content]
+                content = [x.rstrip() for x in content]
                 for item in content:
-                    templist.append(item.split("="))
+                    templist.append([x.strip() for x in item.split("=")])
                 for list in templist:
                     dictionary[list[0]] = list[1].split(",")
                 if example_name not in dictionary:

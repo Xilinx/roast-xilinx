@@ -13,21 +13,14 @@ from roast.utils import *  # pylint: disable=unused-wildcard-import
 log = logging.getLogger(__name__)
 
 
-class CrossCompile(Basebuild):
+class BaseCrossCompile(Basebuild):
     def __init__(self, config, app_name, setup=True):
 
-        super(CrossCompile, self).__init__(config, setup=setup)
-        if has_key(config, "console"):
-            self.console = config.console
-        else:
-            self.console = Xexpect(log, exit_nzero_ret=True)
-            setattr(config, "console", self.console)
+        super().__init__(config, setup=setup)
+        self.console = Xexpect(log, exit_nzero_ret=True)
 
-        self._copy_src()
-        self.srcDir = os.path.join(self.config["workDir"], "src")
-        self.app_name = app_name
         self._setup_args()
-        self._configure()
+        self.app_name = app_name
 
     def _copy_src(self):
         src = (
@@ -40,42 +33,104 @@ class CrossCompile(Basebuild):
             copyDirectory(src, dest)
 
     def _setup_args(self):
-        if has_key(self.config, "CARDANO_ROOT"):
+        if "CARDANO_ROOT" in self.config:
             self.cardano_root = self.config["CARDANO_ROOT"]
         self.sysroot = self.config["mini_sysroot"]
         self.lib_file = self.config["lib_file"]
 
-    def _configure(self):
-        self.common_compiler_flags = "-Wall -O0 -g3 -c -fmessage-length=0"
-        self.common_linker_flags = ""
-
-        self.include_dir = [self.config["workDir"] + "/"]
+    def pre_configure(self):
+        super().configure()
+        self.srcDir = os.path.join(self.workDir, "src")
+        self._copy_src()
+        self.compiler_flags = ""
+        self.linker_flags = ""
+        self.include_dir = [self.workDir]
         self.lib_dir = []
-        if has_key(self.config, "CARDANO_ROOT"):
-            self.lib_dir.append(
-                os.path.join(self.cardano_root, "lib", self.lib_file + ".o")
-            )
-            self.include_dir.append(os.path.join(self.cardano_root, "include"))
 
-        VITIS_PATH = self.config["vitisPath"]
+    def configure(self):
 
-        cmdlist = [f"source {VITIS_PATH}/settings64.sh", f"cd {self.config['workDir']}"]
-
+        VITIS_DIR = self.config.vitisPath
+        XLNX_LICENSE = self.config["XILINXD_LICENSE_FILE"]
+        cmdlist = [
+            f"export XILINXD_LICENSE_FILE={XLNX_LICENSE}",
+            f"export VITIS_DIR={VITIS_DIR}",
+            f"source {self.config.vitisPath}/settings64.sh",
+            f"cd {self.workDir}",
+        ]
         self.console.runcmd_list(cmdlist)
+        if "AIETOOLS_ROOT" in self.config:
+            AIETOOLS_ROOT = self.config.AIETOOLS_ROOT
+            SYSROOT = self.config.SYSROOT
+            PFM_XPFM = self.config.PFM_XPFM
+            cmdlist = [
+                f"export AIETOOLS_ROOT={AIETOOLS_ROOT}",
+                f"export SYSROOT={SYSROOT}",
+                f"export PFM_XPFM={PFM_XPFM}",
+                f"export PATH={VITIS_DIR}/bin:$PATH",
+            ]
+            self.console.runcmd_list(cmdlist)
+            self.include_dir.append(f"{AIETOOLS_ROOT}/include")
+            self.lib_dir += [f"{AIETOOLS_ROOT}/lib/{self.lib_file}.o/"]
 
-    def compile(self, src_file_name):
-
-        if has_key(self.config, "user_include_path"):
+        if "user_include_path" in self.config:
             for path in self.config.user_include_path:
                 path = parse_config(self.config, path)
                 self.include_dir += [path]
 
+        if "user_compiler_flags" in self.config:
+            self.compiler_flags += self.config.user_compiler_flags
+
+        # Add Cardano Source path to include
+        if self.config.get("cardano_app"):
+            self.include_dir.append(f"{self.config.cardano_base_ws_dir}/work/src")
+
         self.include = ["-I" + dir for dir in self.include_dir]
         self.include = " ".join(self.include)
 
+        if "user_lib_path" in self.config:
+            for path in self.config.user_lib_path:
+                path = parse_config(self.config, path)
+                self.lib_dir += [path]
+
+        self.lib = ["-L" + dir for dir in self.lib_dir]
+        self.lib = " ".join(self.lib)
+
+        if "user_linker_flags" in self.config:
+            self.linker_flags += self.config.user_linker_flags
+
+    def deploy(self, src_file_name):
+        if "deploy_artifacts" in self.config:
+            for artifact in self.config["deploy_artifacts"]:
+                artifact_path = os.path.join(self.workDir, artifact)
+                if is_dir(artifact_path):
+                    copyDirectory(artifact_path, os.path.join(self.imagesDir, artifact))
+                else:
+                    copy_match_files(
+                        self.workDir, self.imagesDir, artifact, follow_src_dir=True
+                    )
+
+            cmd_list = [
+                f"cd {self.imagesDir}",
+                f"tar cvfJ deploy_artifacts.tar.xz ./*",
+            ]
+            self.console.runcmd_list(cmd_list)
+
+        aie_path = os.path.join(self.workDir, "aie_control." + self.app_name["exe"])
+        if is_file(f'{self.workDir}/{src_file_name}.{self.app_name["exe"]}'):
+            copy_file(
+                f'{self.workDir}/{src_file_name}.{self.app_name["exe"]}',
+                self.imagesDir,
+            )
+            log.info(f"{self.app_name['exe']} created successfully")
+        else:
+            raise Exception(f"Error: {self.app_name['exe']} creation failed")
+
+
+class BaremetalCrossCompile(BaseCrossCompile):
+    def compile(self, src_file_name):
         compile_cmd = [
             self.app_name["compiler"][self.config["param"]],
-            self.common_compiler_flags,
+            self.compiler_flags,
             self.app_name["compile_flags"],
             f'-MT"{self.srcDir}/{src_file_name}.cpp"',
             self.app_name["procname"][self.config["param"]],
@@ -87,146 +142,148 @@ class CrossCompile(Basebuild):
             f"{self.srcDir}/{src_file_name}.cpp",
         ]
 
-        if has_key(self.config, "file_format") and self.config["file_format"] == "eabi":
+        if self.config.get("file_format") == "eabi":
             compile_cmd += [self.config["abi_cmd"]]
 
         cmd = " ".join(compile_cmd)
-        self.console.runcmd(cmd)
+        self.console.runcmd(cmd, err_msg="Baremetal Compilation Failed")
         time.sleep(5)
 
-    def link(self):
-
-        if has_key(self.config, "user_lib_path"):
-            for path in self.config.user_lib_path:
-                path = parse_config(self.config, path)
-                self.lib_dir += [path]
-
-        self.lib = ["-L" + dir for dir in self.lib_dir]
-        self.lib = " ".join(self.lib)
+    def link(self, src_file_name):
 
         link_cmd = [
             self.app_name["compiler"][self.config["param"]],
-            "-v",
+            " -v",
             self.app_name["procname"][self.config["param"]],
-            self.common_linker_flags,
+            self.linker_flags,
             f"{self.lib}",
             "-o",
-            f"{self.config['workDir']}/aie_control.{self.app_name['exe']}",
-            f"{self.srcDir}/aie_control.o",
+            f"{self.workDir}/{src_file_name}.{self.app_name['exe']}",
+            f"{self.srcDir}/{src_file_name}.o",
         ]
 
-        if has_key(self.config, "cardano_app") and self.config["cardano_app"]:
+        if self.config.get("cardano_app"):
             link_cmd += [
-                f'{self.wsDir}../cardano/work/src/{self.config["cardano_src"]}.o'
+                f'{self.config.cardano_base_ws_dir}/work/src/{self.config["cardano_src"]}.o'
             ]
 
-        if has_key(self.config, "file_format") and self.config["file_format"] == "eabi":
+        if self.config.get("file_format") == "eabi":
             link_cmd += [self.config["abi_cmd"]]
 
         link_cmd += [self.app_name["link_flags"]]
 
         cmd = " ".join(link_cmd)
-        self.console.runcmd(cmd)
+        self.console.runcmd(cmd, err_msg="Baremetal Linking Failed")
         time.sleep(5)
 
-    def deploy(self):
-        if has_key(self.config, "deploy_artifacts"):
-            for artifact in self.config["deploy_artifacts"]:
-                artifact_path = os.path.join(self.config["workDir"], artifact)
-                if is_dir(artifact_path):
-                    copyDirectory(
-                        artifact_path, os.path.join(self.config["imagesDir"], artifact)
-                    )
-                elif is_file(artifact_path):
-                    copy_file(artifact_path, self.config["imagesDir"])
-            cmd_list = [
-                f"cd {self.config['imagesDir']}",
-                f"tar cvfJ deploy_artifacts.tar.xz ./*",
-            ]
-            self.console.runcmd_list(cmd_list)
 
-        aie_path = os.path.join(
-            self.config["workDir"], "aie_control." + self.app_name["exe"]
-        )
-        if is_file(aie_path):
-            copy_file(aie_path, self.config["imagesDir"])
-            log.info(f"{self.app_name['exe']} created successfully")
-        else:
-            raise Exception(f"Error: {self.app_name['exe']} creation failed")
+class LinuxCrossCompile(BaseCrossCompile):
+    def compile(self, src_file_name):
+        sysroot = ""
+        sysroot_opts = ""
+        # Add sysroot if defined in config to linking flags
+        if "SYSROOT" in self.config:
+            sysroot = self.config.SYSROOT
+            sysroot_opts = f"--sysroot {sysroot}"
+            self.include = (
+                f"-I{sysroot}/usr/include -I{sysroot}/usr/include/xrt {self.include}"
+            )
+            # Copy Sysroot libs
+            libs_dir = os.path.join(self.config["workDir"], "libs")
+            copy_match_files(f"{sysroot}/usr/lib", libs_dir, "libxrt*")
+            self.lib = f"-L{libs_dir} {self.lib}"
+
+        link_cmd = [
+            self.app_name["compiler"][self.config["param"]],
+            sysroot_opts,
+            self.compiler_flags,
+            self.app_name["compile_flags"],
+            self.include,
+            self.app_name["procname"][self.config["param"]],
+            f"{self.lib}",
+            "-o",
+            f"{self.workDir}/{src_file_name}.{self.app_name['exe']}",
+            f"{self.srcDir}/{src_file_name}.cpp",
+        ]
+
+        if self.config.get("cardano_app"):
+            cardano_linux_src = self.config.get("cardano_linux_src")
+            if cardano_linux_src:
+                link_cmd.append(f"{self.workDir}/{cardano_linux_src}")
+            else:
+                link_cmd.append(
+                    f"{self.config.cardano_base_ws_dir}/work/src/{self.config['cardano_src']}.cpp"
+                )
+
+        link_cmd.append(self.linker_flags)
+        link_cmd.append(self.app_name["link_flags"])
+
+        cmd = " ".join(link_cmd)
+        self.console.runcmd(cmd, err_msg="Linux Cross Compilation Failed")
+        time.sleep(5)
 
 
 def baremetal_runner(config, setup=True):
-    ret = False
-    try:
-        app_name = {
-            "compiler": {"a72": "aarch64-none-elf-g++", "r5": "armr5-none-eabi-g++"},
-            "compile_flags": "-D__AIEBAREMTL__ -DPS_ENABLE_AIE -MMD -MP",
-            "procname": {"a72": "-mcpu=cortex-a72", "r5": "-mcpu=cortex-r5"},
-            "link_flags": "-ladf_api -Wl,--start-group,-lxil,-lgcc,-lc,-lstdc++,--end-group",
-            "exe": "elf",
-        }
-        bm = CrossCompile(config, app_name, setup)
-        # Baremetal application path for include and lib
-        bm.component_ws_dir = (
-            f"{bm.config['component_ws_dir']}/{bm.config['component']}/"
-            + f"{bm.config['xsct_platform_name']}/"
-            + f"{bm.config['xsct_proc_name']}/"
-            + f"{bm.config['component']}_bsp/bsp/"
-            + f"{bm.config['xsct_proc_name']}"
-        )
+    app_name = {
+        "compiler": {"a72": "aarch64-none-elf-g++", "r5": "armr5-none-eabi-g++"},
+        "compile_flags": "-Wall -O0 -g3 -c -fmessage-length=0 -D__AIEBAREMTL__ -DPS_ENABLE_AIE -MMD -MP",
+        "procname": {"a72": "-mcpu=cortex-a72", "r5": "-mcpu=cortex-r5"},
+        "link_flags": "-ladf_api -Wl,--start-group,-lxil,-lgcc,-lc,-lstdc++,--end-group",
+        "exe": "elf",
+    }
+    bm = BaremetalCrossCompile(config, app_name, setup)
+    bm.pre_configure()
+    # Baremetal application path for include and lib
+    bm.component_ws_dir = (
+        f"{bm.config['component_ws_dir']}/{bm.config['component']}/"
+        + f"{bm.config['xsct_platform_name']}/"
+        + f"{bm.config['xsct_proc_name']}/"
+        + f"{bm.config['component']}_bsp/bsp/"
+        + f"{bm.config['xsct_proc_name']}"
+    )
 
-        bm.ldscript = (
-            f"{bm.config['component_ws_dir']}/{bm.config['component']}/"
-            + f"{bm.config['component']}/src/lscript.ld"
-        )
+    bm.ldscript = (
+        f"{bm.config['component_ws_dir']}/{bm.config['component']}/"
+        + f"{bm.config['component']}/src/lscript.ld"
+    )
 
-        bm.include_dir += [f"{bm.component_ws_dir}/include"]
-        bm.compile("aie_control")
-        bm.lib_dir += [f"{bm.component_ws_dir}/lib"]
+    bm.include_dir += [f"{bm.component_ws_dir}/include"]
+    bm.lib_dir += [f"{bm.component_ws_dir}/lib"]
+    if config["HEAP_SIZE"]:
+        bm.linker_flags += f" -Xlinker --defsym=_HEAP_SIZE={config['HEAP_SIZE']} "
+    bm.linker_flags += f" -Wl,-T -Wl,{bm.ldscript}"
 
-        if config["HEAP_SIZE"]:
-            bm.common_linker_flags += (
-                f" -Xlinker --defsym=_HEAP_SIZE={config['HEAP_SIZE']} "
-            )
-
-        bm.common_linker_flags += f" -Wl,-T -Wl,{bm.ldscript}"
-        bm.link()
-        bm.deploy()
-        ret = True
-    except Exception as err:
-        log.error(err)
-    return ret
+    bm.configure()
+    bm.compile("aie_control")
+    bm.link("aie_control")
+    bm.deploy("aie_control")
 
 
 def linux_runner(config, setup=True):
-    ret = False
-    try:
-        app_name = {
-            "compiler": {"linux": "aarch64-linux-gnu-g++"},
-            "compile_flags": "-DPS_INIT_AIE -DPS_ENABLE_AIE -DXAIE_DEBUG -MMD",
-            "procname": {"linux": ""},
-            "link_flags": "-lxaiengine -ladf_api -Wl,--warn-unresolved-symbols",
-            "exe": "run",
-        }
-        bm = CrossCompile(config, app_name, setup)
+    app_name = {
+        "compiler": {"linux": "aarch64-linux-gnu-g++"},
+        "compile_flags": "-DPS_ENABLE_AIE -DXAIE_DEBUG -DUSE_XRT",
+        "procname": {"linux": ""},
+        "link_flags": "-lstdc++ -ladf_api_xrt -lxrt_coreutil -lxrt_core -lxaiengine",
+        "exe": "run",
+    }
+    bm = LinuxCrossCompile(config, app_name, setup)
+    bm.pre_configure()
 
-        if config["cardano_app"]:
-            config["src_path"] = "{wsDir}../cardano/images/"
-            copyDirectory(f"{config['src_path']}", bm.config["workDir"])
+    if config.get("cardano_app"):
+        bm.config.cardano_base_ws_dir = os.path.join(
+            config.buildDir, "/".join(config.test_path_list), "cardano"
+        )
+        config["src_path"] = f"{config.cardano_base_ws_dir}/images"
+        copyDirectory(f"{config['src_path']}", bm.workDir)
 
-        bm.include_dir += [f"{bm.sysroot}/usr/include/"]
-        bm.include_dir += [f"{config['aie_headers_dir']}"]
-        bm.compile("aie_control")
+    bm.include_dir += [f"{config['aie_headers_dir']}"]
 
-        if config["cardano_app"]:
-            bm.srcDir = f"{config['wsDir']}../cardano/work/src"
-            bm.compile(config["cardano_src"])
-            bm.srcDir = f"{config['workDir']}/src"
+    src_file = "aie_control"
+    if config.get("cardano_app"):
+        src_file = "aie_control_xrt"
 
-        bm.lib_dir += [f"{config['aie_lib_dir']}"]
-        bm.link()
-        bm.deploy()
-        ret = True
-    except Exception as err:
-        log.error(err)
-    return ret
+    bm.lib_dir.append(config.aie_lib_dir)
+    bm.configure()
+    bm.compile(src_file)
+    bm.deploy(src_file)
