@@ -62,7 +62,7 @@ setup(
     keywords="roast-xilinx",
     license="MIT",
     packages=packages,
-    package_data={"": ["*.yaml", "*.tcl"]},
+    package_data={"": ["*.yaml", "*.tcl", "*.scr"]},
     python_requires=">=3.6, <4",
     install_requires=[
         "roast>=2.1.0",
