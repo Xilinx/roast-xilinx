@@ -428,7 +428,7 @@ def uboot_login(cons, prompt="(ZynqMP>|Zynq>|U-Boot>|Versal> )") -> None:
 
 def linux_login(board, user="root", password="root", timeout=500, login=True) -> None:
     linux_login_cons(
-        board.serial, user="root", password="root", login=login, timeout=timeout
+        board.serial, user=user, password=password, login=login, timeout=timeout
     )
 
 
@@ -449,6 +449,8 @@ def linux(board, timeout=500, expected_msg="Total PLM Boot Time") -> None:
 
     if load_interface == "tcl":
         xsdbcon.run_tcl(config["linux_run_tcl"])
+        if config.get("tcl_args"):
+            xsdbcon.runcmd(config["tcl_args"])
     elif load_interface == "petalinux":
         if board.config["boottype"] == "prebuilt":
             petalinux_boot(

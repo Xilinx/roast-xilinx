@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: MIT
 #
 
+import time
 import socket
 import logging
 from roast.component.board.board import BoardBase
@@ -61,6 +62,7 @@ class TargetBoard(BoardBase):
             self.isLive = True
         else:
             self.serial.exit()
+            time.sleep(4)
             if self.invoke_xsdb:
                 self.xsdb = Xsdb(self.config, hwserver=self.host)
 

@@ -181,8 +181,22 @@ proc source_extension {} {
 proc compute_latest_ver { component } {
 	set comp_list ""
 	set esw_comp ""
-	set bsp_path "$::params(ws)/$::params(hwpname)/$::params(processor)/$::params(bspname)/bsp"
-	set libsrc_path "$bsp_path/$::params(processor)/libsrc"
+
+	# Get valid proc
+	set proc_name $::params(processor)
+	set list [split $proc_name "_"]
+	# Access individual elements
+	set first [lindex $list [expr [llength $list] - 1]]
+	set second [lindex $list [expr [llength $list] - 2]]
+	set output $::params(processor)
+
+	if { [ expr [llength $list] >= 3 ] && [string match "*cips*" $output] } {
+		set third [lindex $list [expr [llength $list] - 3]]
+		set output ${third}_${second}_${first}
+	}
+
+	set bsp_path "$::params(ws)/$::params(hwpname)/$output/$::params(bspname)/bsp"
+	set libsrc_path "$bsp_path/$output/libsrc"
 	# To get all the components
 	set name_list [ glob $libsrc_path/* ]
 	set esw_comp_list ""
@@ -434,7 +448,7 @@ proc create_hw_project {} {
 
 proc set_processor_name {} {
 	# Find all the valid processors in the HDF
-	set processor [hsi::get_cells -filter {IP_TYPE==PROCESSOR}]
+	set processor [hsi::get_cells -hier -filter {IP_TYPE==PROCESSOR}]
 	if {! [contains_any $::params(processor) $processor] == "1" } {
 		puts "WARN: The given processor: $::params(processor) is not supported in design, \
 		using design supported processor:[lindex $processor 0]"

@@ -25,15 +25,13 @@ def get_version_and_cmdclass(package_path):
     import os
     from importlib.util import module_from_spec, spec_from_file_location
 
-    spec = spec_from_file_location(
-        "version", os.path.join(package_path, "roast", "_version.py")
-    )
+    spec = spec_from_file_location("version", os.path.join(package_path, "_version.py"))
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.__version__, module.cmdclass
 
 
-version, cmdclass = get_version_and_cmdclass(".")
+version, cmdclass = get_version_and_cmdclass("roast")
 
 long_description = read("README.md")
 packages = find_packages(exclude=["contrib", "docs", "tests"])
@@ -68,7 +66,14 @@ setup(
         "roast>=2.1.0",
     ],
     extras_require={
-        "dev": ["pytest", "pytest-mock", "pytest-black", "pytest-freezegun", "miniver"]
+        "dev": [
+            "pytest",
+            "pytest-mock",
+            "pytest-black",
+            "pytest-freezegun",
+            "miniver",
+            "coverage",
+        ]
     },
     entry_points={
         "roast.component.system": [

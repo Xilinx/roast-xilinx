@@ -9,4 +9,5 @@ PLNX_BSP = "xilinx-zcu104-v{version}-final.bsp"
 plnx_proj = "xilinx-zcu104-{version}"
 uboot_devicetree = "zynqmp-zcu104-revC"
 dtb_dtg = "zcu104-revc"
-silicon = "da6"
+silicon = "da6-c1156"
+boards = ["zcu104"]

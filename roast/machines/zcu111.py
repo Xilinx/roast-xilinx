@@ -11,3 +11,4 @@ plnx_proj = "xilinx-zcu111-{version}"
 dtb_dtg = "zcu111-reva"
 uboot_devicetree = "zynqmp-zcu111-revA"
 silicon = "dc12-g1517-2l-e"
+boards = ["zcu111"]

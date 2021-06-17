@@ -41,12 +41,16 @@ class MtdLinux:
 
     def flash_erase(self, mtd_device, extra_args=""):
         self.console.runcmd(
-            f"flash_erase {extra_args} {mtd_device} 0 0", expected="100 % complete"
+            f"flash_erase {extra_args} {mtd_device} 0 0",
+            expected="100 % complete",
+            timeout=600,
         )
 
     def ubiformat(self, mtd_device, extra_args=""):
         self.console.runcmd(
-            f"ubiformat {mtd_device} {extra_args}", expected="100 % complete"
+            f"ubiformat {mtd_device} {extra_args}",
+            expected="100 % complete",
+            timeout=600,
         )
 
     def ubiattach(self, mtd_device):

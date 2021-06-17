@@ -5,9 +5,12 @@
 
 import time
 import sys
+import logging
 from roast.component.board.boot import load_pdi, is_linux, linuxcons
 from roast.utils import is_file, copyDirectory, get_original_path
 from roast.component.cardano import check_cardano
+
+log = logging.getLogger(__name__)
 
 
 def run_plm(
@@ -102,7 +105,7 @@ def copy_linux_test_images(config, test):
     linux_images = f"{config['buildDir']}/{config['machine']}/{test}/linux/images/"
     src_file = f"{linux_images}/deploy_artifacts.tar.xz"
     if not is_file(src_file):
-        print(f"ERROR: No Such File {src_file}", file=sys.stderr)
+        log.error(f"ERROR: No Such File {src_file}")
         raise Exception("Build test Failed")
     copyDirectory(linux_images, config["imagesDir"])
     check_cardano(config)
@@ -110,9 +113,9 @@ def copy_linux_test_images(config, test):
 
 def petalinux_aie_boot(config, board_session, boottype):
     config["plnx_proj"] = config["PLNX_BSP"]
-    config["load_interface"] = "petalinux"
+    config["load_interface"] = "tcl"
     config["boottype"] = boottype
-    config["board_init_files"] = {}
+    config.pop("board_init_files", None)
     plnx_bsp_path = get_original_path(f"{config.BSP_PATH}/{config.PLNX_BSP}")
 
     # check for PLNX BSP before acquiring board
@@ -120,6 +123,11 @@ def petalinux_aie_boot(config, board_session, boottype):
         print(f"Petalinux BSP {plnx_bsp_path} Not found", file=sys.stderr)
         raise Exception("Petalinux BSP Not found")
 
+    if config.get("load_interface") == "tcl":
+        for artifact in config.get("plnx_artifacts", []):
+            if not is_file(f"{config.get('deploy_dir')}/{artifact}"):
+                log.error(f"{artifact} not found in {config.get('deploy_dir')}")
+                raise Exception("Petalinux Build test Failed")
     if boottype == "kernel":
         config[
             "plnx_proj_path"
