@@ -4,6 +4,7 @@
 #
 
 import os
+import re
 import time
 import logging
 from roast.xexpect import Xexpect
@@ -234,6 +235,17 @@ def baremetal_runner(config, setup=True):
     bm = BaremetalCrossCompile(config, app_name, setup)
     bm.pre_configure()
     # Baremetal application path for include and lib
+
+    # When CIPS3.0 designs are used bsp path is not created based on xsct proc name,
+    # Instead its being truncated to match the name which was generated
+    # while CIPS 2.1 is used which of length 3 for all the versal platform components.
+    if len(bm.config["xsct_proc_name"]) >= 3 and re.search(
+        "cips", bm.config["xsct_proc_name"], re.IGNORECASE
+    ):
+        proc_list = bm.config["xsct_proc_name"].split("_")
+        proc_list = proc_list[-3:]
+        bm.config["xsct_proc_name"] = "_".join(proc_list)
+
     bm.component_ws_dir = (
         f"{bm.config['component_ws_dir']}/{bm.config['component']}/"
         + f"{bm.config['xsct_platform_name']}/"

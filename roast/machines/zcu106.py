@@ -10,3 +10,4 @@ plnx_proj = "xilinx-zcu106-{version}"
 uboot_devicetree = "zynqmp-zcu106-revA"
 dtb_dtg = "zcu106-reva"
 silicon = "da6-c1156"
+boards = ["zcu106"]

@@ -5,7 +5,7 @@
 
 import os
 import logging
-from roast.utils import setup_logger, reset, mkdir, is_dir, copyDirectory
+from roast.utils import setup_logger, reset, mkdir, is_dir, copyDirectory, remove
 from roast.component.system import SystemBase
 
 log = logging.getLogger(__name__)
@@ -24,15 +24,28 @@ class Basebuild(SystemBase):
     def __init__(self, config, setup: bool = True):
         super().__init__(config)
         self.setup = setup
+
+        # override workDir with customized option
+        if config.get("work_root_dir"):
+            work_dir = os.path.join(
+                config.work_root_dir,
+                *config.get("base_params", ""),
+                *config.get("test_path_list", ""),
+                *config.get("params", ""),
+                "work",
+            )
+            reset(work_dir)
+            config["workDir"] = work_dir
+
         self.wsDir = config["wsDir"]
         self.workDir = config["workDir"]
         self.logDir = config["logDir"]
         self.imagesDir = config["imagesDir"]
         if self.setup:
-            reset(self.config["wsDir"])
-        mkdir(self.config["workDir"])
-        mkdir(self.config["logDir"])
-        mkdir(self.config["imagesDir"])
+            reset(config["wsDir"])
+        mkdir(config["workDir"])
+        mkdir(config["logDir"])
+        mkdir(config["imagesDir"])
 
         log_filename = config.get("log_filename")
         console_level = config.get("console_level", logging.INFO)
@@ -76,3 +89,7 @@ class Basebuild(SystemBase):
 
     def build(self):
         pass
+
+    def __del__(self):
+        if self.config.get("clean_work_dir"):
+            remove(self.workDir)

@@ -20,4 +20,6 @@ class Timer(MtdLinux, Kconfig, DtsLinux, BaseLinux):
     def run_timer(self):
         self.console.runcmd("START_TIME=$SECONDS", expected="\r\n")
         time.sleep(60)
-        self.console.runcmd("echo $((SECONDS - START_TIME))", expected="60", timeout=30)
+        self.console.runcmd(
+            "echo $((SECONDS - START_TIME))", expected=["60", "61"], timeout=30
+        )

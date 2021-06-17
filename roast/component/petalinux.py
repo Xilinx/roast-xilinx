@@ -38,7 +38,7 @@ class Petalinux(Basebuild):
     kernel_dir = f"{meta_user}/recipes-kernel/linux/linux-xlnx"
     kernel_bbappend = f"{meta_user}/recipes-kernel/linux/linux-xlnx_%.bbappend"
     devicetree_append = f"{devicetree_dir}/device-tree.bbappend"
-    fsbl_bbappend = f"{fsbl_dir}/fsbl_%.bbappend"
+    fsbl_bbappend = f"{fsbl_dir}/fsbl-firmware_%.bbappend"
     atf_dir = f"{recipes_bsp}/arm-trusted-firmware"
     atf_bbappend = f"{atf_dir}/arm-trusted-firmware_%.bbappend"
     uboot_dir = f"{meta_user}/recipes-bsp/u-boot"
@@ -170,7 +170,6 @@ class Petalinux(Basebuild):
             if "git.bsp.branch" not in self.config:
                 self.config.git.bsp.branch = "master"
             clone(
-                self.config,
                 self.config.git.bsp,
                 self.proj_dir,
                 recurse_submodules=self.config.git.bsp.recurse_submodules,
@@ -236,10 +235,14 @@ class Petalinux(Basebuild):
         """
 
         if self.plnx_tmp:
-            self.plnx_tmp = os.path.join(
-                self.plnx_tmp,
-                self.plnx_proj + "-" + datetime.now().strftime("%Y.%m.%d-%H.%M.%S"),
+            tmp_dir = (
+                self.plnx_proj + "-" + datetime.now().strftime("%Y.%m.%d-%H.%M.%S")
             )
+
+            if os.getenv("JOB_NAME"):
+                tmp_dir = f"{os.getenv('JOB_NAME')}/{tmp_dir}"
+
+            self.plnx_tmp = os.path.join(self.plnx_tmp, tmp_dir)
 
             mkdir(self.plnx_tmp)
             os.chmod(self.plnx_tmp, 0o777)
@@ -653,7 +656,7 @@ class Petalinux(Basebuild):
             log.info(f"Checking petalinux artifacts in {self.proj_dir}")
             if "plnx_artifacts" in self.config:
                 for image in self.config["plnx_artifacts"]:
-                    image_file = find_file(image, self.workDir)
+                    image_file = find_file(image, f"{self.proj_dir}/images/linux")
                     if image_file:
                         if is_file(image_file):
                             copy_file(image_file, deploy_dir)

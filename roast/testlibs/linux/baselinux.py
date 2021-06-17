@@ -16,6 +16,7 @@ class BaseLinux:
         self.console.exit_nzero_ret = True
         self.sys_dt_base = "/sys/firmware/devicetree/base"
         self.sys_amba = "/sys/devices/platform/amba"
+        self.sys_axi = "/sys/devices/platform/axi"
         self.kconfig_path = "/proc/config.gz"
         self.sys_dmatest = "/sys/module/dmatest/parameters"
         self.bootargs = "/proc/cmdline"

@@ -43,10 +43,6 @@ class Cardano(Basebuild):
             f"source {self.config.vitisPath}/settings64.sh",
         ]
         self.console.runcmd_list(cmdlist)
-        if is_file(f"{self.config.AIETOOLS_ROOT}/scripts/aietools_env.sh"):
-            self.console.runcmd(
-                f"source {self.config.AIETOOLS_ROOT}/scripts/aietools_env.sh"
-            )
 
     def compile_cardano_app(self):
 
@@ -61,7 +57,7 @@ class Cardano(Basebuild):
         ]
         cmd = " ".join(compile_cmd)
 
-        timeout = self.config.get("cardano_timeout", 800)
+        timeout = int(self.config.get("cardano_timeout", 800))
         self.console.runcmd(
             cmd, timeout=timeout, err_msg="Cardano App Compilation Failure"
         )
@@ -77,7 +73,7 @@ class Cardano(Basebuild):
             f"{self.workDir}/libadf.a",
         ]
         cmd = " ".join(gen_cmd)
-        timeout = self.config.get("vpp_timeout", 600)
+        timeout = int(self.config.get("vpp_timeout", 600))
         self.console.runcmd(cmd, timeout=timeout, err_msg="xclbin generation failed")
 
     def generate_pdis(self):
@@ -128,17 +124,52 @@ class Cardano(Basebuild):
             cmd = " ".join(gen_cmd)
             self.console.runcmd(cmd)
             self.console.runcmd(f"{self.workDir}/{self.config.generate_src}.out")
-        timeout = self.config.get("simulation_timeout", 700)
+        timeout = int(self.config.get("simulation_timeout", 700))
         self.console.runcmd(
             f"aiesimulator --pkg-dir={self.workDir}/Work",
             timeout=timeout,
             err_msg="Cardano app Simulation Failed",
         )
 
+    def incremental_build(self):
+        if self.config.external_aienginev2 and self.config.get("external_cardano_src"):
+            self.config.AIETOOLS_ROOT = (
+                f"{self.config.external_cardano_src}/prep/rdi/aietools"
+            )
+            self.console.runcmd(
+                f"source {self.config.AIETOOLS_ROOT}/scripts/aietools_env.sh"
+            )
+
+            lock_path = os.path.join(
+                get_abs_path(self.config.external_cardano_src),
+                "src/products/cardano/",
+                "incremental_build.lock",
+            )
+            lock = FileLock(lock_path)
+            with lock:
+                build_number = os.getenv("BUILD_NUMBER")
+                if not check_if_string_in_file(
+                    f"{self.config.external_cardano_src}/logs/incremetal_build.log",
+                    build_number,
+                ):
+                    self.console.runcmd(
+                        f"sh {self.config.external_cardano_src}/incremental_build.sh {self.config.external_aienginev2}",
+                        expected="Incremental Build SUCCESSFUL",
+                        expected_failures=["Incremental Build FAILED"],
+                        timeout=3000,
+                    )
+                else:
+                    if check_if_string_in_file(
+                        f"{self.config.external_cardano_src}/logs/incremetal_build.log",
+                        "Incremental Build FAILED",
+                    ):
+                        raise Exception("ERROR: Incremental Build FAILED")
+
 
 def cardano_builder(config):
     btc = Cardano(config, setup=True)
     btc.configure()
+    btc.incremental_build()
     btc.compile_cardano_app()
     btc.gen_xclbin()
     assert btc.copy_images(), "ERROR: Build Cardano Failed!"
@@ -147,6 +178,9 @@ def cardano_builder(config):
 def cardano_simulator(config):
     btc = Cardano(config, setup=False)
     btc.configure()
+    if not is_file(f"{btc.config.workDir}/aie_xrt.xclbin"):
+        log.error(f"No Such File {btc.config.workDir}/aie_xrt.xclbin")
+        raise Exception("Build test Failed")
     btc.simulate_cardano_app(), "ERROR: Cardano Simulation Failed"
 
 

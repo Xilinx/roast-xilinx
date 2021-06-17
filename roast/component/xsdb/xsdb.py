@@ -65,9 +65,18 @@ class Xsdb(Xexpect):
         self.runcmd(connect_cmd, expected_failures=f_msgs, expected=r"tcfchan\#")
 
     def hw_server_setup(self):
-        f_msgs = "child process exited abnormally"
+        f_msgs = [
+            "child process exited abnormally",
+            'Device hw_server command: "hw_server" .*? exited with status [-+]?[1-9]\d*',
+        ]
         expected = f"INFO: To connect to this hw_server instance use url: TCP:{self.hostname}:3121"
-        self.runcmd("hw_server", f_msgs, expected, wait_for_prompt=False)
+        self.runcmd(
+            "hw_server",
+            f_msgs,
+            expected,
+            wait_for_prompt=False,
+            err_msg="hw_server setup failed!",
+        )
 
     def alive(self):
         expected = [self.init_prompt, self.hostname]
