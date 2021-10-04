@@ -30,7 +30,11 @@ class Cardano(Basebuild):
         VITIS_DIR = self.config.vitisPath
         AIETOOLS_ROOT = self.config.AIETOOLS_ROOT
         SYSROOT = self.config.SYSROOT
-        PFM_XPFM = self.config.PFM_XPFM
+        version_dotless = self.config.version.replace(".", "")
+        base_platform = f"{self.config.BASE_PLATFORM_NAME}_{version_dotless}0_{self.config.BASE_PLATFORM_VERSION_EXTENSION}"
+        self.PFM_XPFM = os.path.join(
+            self.config.PLATFORMS_PATH, base_platform, f"{base_platform}.xpfm"
+        )
         XLNX_LICENSE = self.config["XILINXD_LICENSE_FILE"]
         cmdlist = [
             f"export XILINXD_LICENSE_FILE={XLNX_LICENSE}",
@@ -38,7 +42,7 @@ class Cardano(Basebuild):
             f"export AIETOOLS_ROOT={AIETOOLS_ROOT}",
             f"export XILINX_VITIS_AIETOOLS={AIETOOLS_ROOT}",
             f"export SYSROOT={SYSROOT}",
-            f"export PFM_XPFM={PFM_XPFM}",
+            f"export PFM_XPFM={self.PFM_XPFM}",
             f"export PATH={VITIS_DIR}/bin:$PATH",
             f"source {self.config.vitisPath}/settings64.sh",
         ]
@@ -66,7 +70,7 @@ class Cardano(Basebuild):
 
         gen_cmd = [
             "v++ -s -p -t hw",
-            f"--platform {self.config.PFM_XPFM}",
+            f"--platform {self.PFM_XPFM}",
             f"--package.out_dir {self.workDir} --package.defer_aie_run",
             f"--config {self.config.vpp_package_path}/package.cfg",
             f"-o aie_xrt.xclbin",
@@ -100,6 +104,7 @@ class Cardano(Basebuild):
                     f"{self.workDir}/Work/ps/c_rts/{cpp}",
                     f"{self.imagesDir}/src",
                 )
+            copyDirectory(f"{self.workDir}/src", f"{self.imagesDir}/src")
             self.xclbin = get_files(self.workDir, extension="xclbin")
             for xclbin in self.xclbin:
                 copy_file(f"{self.workDir}/{xclbin}", self.imagesDir)
@@ -112,6 +117,14 @@ class Cardano(Basebuild):
         return ret
 
     def simulate_cardano_app(self):
+        if self.config.external_aienginev2 and self.config.get("external_cardano_src"):
+            self.config.AIETOOLS_ROOT = (
+                f"{self.config.external_cardano_src}/prep/rdi/aietools"
+            )
+            self.console.runcmd(f"export AIETOOLS_ROOT={self.config.AIETOOLS_ROOT}")
+            self.console.runcmd(
+                f"source {self.config.AIETOOLS_ROOT}/scripts/aietools_env.sh"
+            )
         self.console.runcmd(f"cd {self.workDir}")
         if self.config.get("generate_input_data") and self.config.get("generate_src"):
             gen_cmd = [
@@ -136,6 +149,7 @@ class Cardano(Basebuild):
             self.config.AIETOOLS_ROOT = (
                 f"{self.config.external_cardano_src}/prep/rdi/aietools"
             )
+            self.console.runcmd(f"export AIETOOLS_ROOT={self.config.AIETOOLS_ROOT}")
             self.console.runcmd(
                 f"source {self.config.AIETOOLS_ROOT}/scripts/aietools_env.sh"
             )
@@ -196,6 +210,41 @@ def standalone_builder(config):
     assert pdi(config), "ERROR: PDI Generation failed"
 
 
+def get_aienginev2_repo(config, console, aie_src_path, rsync_path=None):
+    if not config.get("external_aienginev2"):
+        clone(
+            config.git.aienginev2,
+            aie_src_path,
+            config.workDir,
+        )
+    else:
+        log.info(f"Using external aienginev2: {config.external_aienginev2}")
+        if rsync_path:
+            rsync(console, config.external_aienginev2, rsync_path)
+            aie_src_path = os.path.join(rsync_path, "aienginev2")
+        else:
+            aie_src_path = config.external_aienginev2
+    return aie_src_path
+
+
+def update_aienginev2_repo(config, console, esw_path, aie_src_path):
+    if config.get("external_embeddedsw"):
+        external_esw_src = get_abs_path(config.external_embeddedsw)
+        rsync(console, external_esw_src, config.workDir)
+        esw_path = os.path.join(config.workDir, "embeddedsw")
+
+    lock_path = os.path.join(
+        esw_path, "XilinxProcessorIPLib/drivers", "aienginev2.lock"
+    )
+    lock = FileLock(lock_path)
+    with lock:
+        console.runcmd(f"rm -rf {esw_path}/XilinxProcessorIPLib/drivers/aienginev2")
+        console.runcmd(
+            f"ln -s {aie_src_path} {esw_path}/XilinxProcessorIPLib/drivers/aienginev2"
+        )
+    return esw_path
+
+
 def baremetal_lib(config, proc, setup=True):
     overrides(config, "std")
     overrides(config, proc)
@@ -207,38 +256,45 @@ def baremetal_lib(config, proc, setup=True):
         mkdir(builder.config.xsct_outDir)
 
     if builder.config.get("baremetal_lib_component") == "aienginev2":
-        # copy esw to workDir if external esw is given
-        if builder.config.get("external_embeddedsw", ""):
-            external_esw_src = builder.config.external_embeddedsw.rstrip("/")
-            builder.runner.runcmd(
-                cmd=f"rsync -aqv --exclude '.git*' {external_esw_src} {builder.config.workDir}",
-            )
-            builder.esw_path = os.path.join(builder.config.workDir, "embeddedsw")
-
-        aie_src_path = os.path.join(builder.config.workDir, "aienginev2")
-        if not builder.config.get("external_aienginev2"):
-            clone(
-                builder.config.git.aienginev2,
-                aie_src_path,
-                builder.workDir,
-            )
-        else:
-            log.info(f"Using external aienginev2: {builder.config.external_aienginev2}")
-            aie_src_path = builder.config.external_aienginev2
-
-        lock_path = os.path.join(
-            builder.esw_path, "XilinxProcessorIPLib/drivers", "aienginev2.lock"
+        aie_src_path = os.path.join(config.workDir, "aienginev2")
+        aie_src_path = get_aienginev2_repo(
+            builder.config, builder.console, aie_src_path
         )
-        lock = FileLock(lock_path)
+        builder.esw_path = update_aienginev2_repo(
+            builder.config, builder.console, builder.esw_path, aie_src_path
+        )
 
-        with lock:
-            builder.runner.runcmd(
-                f"rm -rf {builder.esw_path}/XilinxProcessorIPLib/drivers/aienginev2"
-            )
-            builder.runner.runcmd(
-                f"ln -s {aie_src_path} {builder.esw_path}/XilinxProcessorIPLib/drivers/aienginev2"
-            )
-    return builder.build_app(config)
+    ret = builder.build_app(config)
+    if ret:
+        if len(builder.config["xsct_proc_name"]) >= 3 and re.search(
+            "cips", builder.config["xsct_proc_name"], re.IGNORECASE
+        ):
+            proc_list = builder.config["xsct_proc_name"].split("_")
+            proc_list = proc_list[-3:]
+            builder.config["xsct_proc_name"] = "_".join(proc_list)
+
+        component_ws_dir = os.path.join(
+            builder.config["workDir"],
+            builder.config["component"],
+            builder.config["xsct_platform_name"],
+            builder.config["xsct_proc_name"],
+            f"{builder.config['component']}_bsp",
+            "bsp",
+            builder.config["xsct_proc_name"],
+        )
+
+        ldscript = (
+            f"{builder.config['workDir']}/{builder.config['component']}/"
+            + f"{builder.config['component']}/src/lscript.ld"
+        )
+        copyDirectory(
+            component_ws_dir,
+            f"{builder.config['imagesDir']}/{builder.config['xsct_proc_name']}",
+        )
+        copy_file(ldscript, builder.config["imagesDir"])
+        return ret
+    else:
+        return ret
 
 
 def baremetal_builder(config, proc):

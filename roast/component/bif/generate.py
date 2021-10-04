@@ -10,6 +10,7 @@ from collections import namedtuple
 from roast.xexpect import Xexpect
 from roast.component.basebuild import Basebuild
 from roast.utils import is_file, copy_file, remove
+from roast.providers.bif import BifProvider
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +53,18 @@ def create_partition(id, type_data, extra_args, image_path) -> str:
 
 
 def generate_bif(config, format_type: str) -> None:
+    b = BifProvider(seed=config.get("seed"), randomize=config["randomize"])
+    # reconstruct bif data structure
+    bif = tuple()
+    headers, l_components = zip(*config.bif)
+    for header, components in zip(headers, l_components):
+        # config library returns list so cast back to namedtuple
+        header = Header(*header)
+        components = [Component(*component) for component in components]
+        bif = bif + (Block(header, components),)
+    # randomize
+    bif = b.shuffle_sections(bif, config.get("block_constraints", {}))
+
     bif_path = os.path.join(config["workDir"], config["bifFile"])
     with open(bif_path, "w") as biffile:
         if format_type == "new":
@@ -103,11 +116,10 @@ def generate_bif(config, format_type: str) -> None:
                 f" id_code = {id_code}\n extended_id_code = {extended_id_code} \n id = 0x1\n"
             )
             id = 1
-            headers, l_components = zip(*config.bif)
-            for header, components in zip(headers, l_components):
-                # config library returns list so cast back to namedtuple
-                header = Header(*header)
-                components = [Component(*component) for component in components]
+            # write partitions
+            for block in bif:
+                header = block.header
+                components = block.components
                 if header.header == "image":
                     subsystem_id = subsys_data[header.name]
                     biffile.write(

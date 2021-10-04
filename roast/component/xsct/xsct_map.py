@@ -18,6 +18,7 @@ compiler_map = {
     "armcc": ["ps7_cortexa9"],
     "c++": ["psu_cortexa53", "psv_cortexa72"],
     "iar": ["ps7_cortexa9", "psu_cortexr5", "psv_cortexr5"],
+    "armclang": ["psu_cortexa53", "psu_cortexr5", "psv_cortexa72", "psv_cortexr5"],
 }
 
 proc_map = {

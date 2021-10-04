@@ -80,6 +80,7 @@
                         "functest_name",          # function test name
                         "build_till_bsp",         # build till bsp only
                         "use_hypervisor",         # use hypervisor
+                        "use_dependency_props",   # use dependency.props
                         "iar_compilation",        # iar compilation
                       ],
 }

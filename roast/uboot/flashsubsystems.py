@@ -142,11 +142,12 @@ class Fat:
 
     BIN_FILE = "BOOT.BIN"
 
-    def __init__(self, config, console, xsdb, instance=0):
+    def __init__(self, config, console, xsdb, bootmode, instance=0):
         self.config = config
         self.console = console
         self.xsdb = xsdb
         self.instance = instance
+        self.bootmode = bootmode
         self._setup()
 
     def _setup(self):
@@ -159,11 +160,9 @@ class Fat:
                 f"fatinfo mmc {self.instance}", expected="Filesystem: FAT32"
             )
         except:
-            self.xsdb.runcmd("set argv [list %s ]" % (self.instance))
+            self.xsdb.runcmd(f"set argv [list {self.bootmode} ]")
             self.xsdb.run_tcl(self.config["fat_formatter"])
-            self.console.expect(
-                expected="Successfully Formatted", wait_for_prompt=False
-            )
+            self.console.expect(expected="Successfully ran", wait_for_prompt=False)
 
     def write(self, addr, length, offset=0):
         """ Function to write 'length' of bytes from  memory at 'addr' to \

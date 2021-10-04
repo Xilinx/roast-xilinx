@@ -9,16 +9,16 @@ log = logging.getLogger(__name__)
 
 
 class DtsLinux:
-    def get_dtsbus_node(self, buses=("amba", "axi")):
+    def get_dtsbus_node(self, buses=("amba* -o ", "axi"), bus_req="axi"):
         self.console.sync()
         cmd = ""
         for bus in buses:
-            cmd += f" -name {bus} -o "
+            cmd += f" -name {bus} "
         self.console.runcmd(
             f"find {self.sys_dt_base}/ -maxdepth 1 \({cmd}\)", expected="\r\n"
         )
-        if self.console.output():
-            return self.console.output().split("\n")[0].split("/")[-1].rstrip()
+        if bus_req in self.console.output():
+            return f"/{bus_req}/"
         else:
             assert False, f"No buses {buses} found in {self.sys_dt_base}"
 
@@ -50,7 +50,9 @@ class DtsLinux:
         if not self.console.output():
             log.info(f"No dts entries found for {node_path}")
             return False
-        return self.console.output().split()
+        dts_params = self.console.output().split()
+        dts_params = [i for i in dts_params if "root" not in i]
+        return dts_params
 
     def get_dts_nodes(self, dts_list, Ip):
         self.dts_nodes = []

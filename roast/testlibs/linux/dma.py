@@ -53,10 +53,32 @@ class DmaLinux(DtsLinux, SysDevices, BaseLinux):
             self.console.runcmd(f"echo ' ' > {self.sys_dmatest}/channel")
         else:
             for channel in channels_list:
-                self.console.runcmd(f"echo {channel} > " f"{self.sys_dmatest}/channel")
+                if "root" not in channel:
+                    self.console.runcmd(
+                        f"echo {channel} > " f"{self.sys_dmatest}/channel"
+                    )
 
     def dmatest_cfg_timeout(self, timeout):
         self.console.runcmd(f"echo {timeout} > {self.sys_dmatest}/timeout")
+
+    def axidmatest_module(self, bufsize, iterations):
+        self.console.runcmd(
+            f"modprobe axidmatest test_buf_size={bufsize} iterations={iterations}"
+        )
+
+    def axivdmatest_module(self, bufsize, iterations):
+        self.console.runcmd(
+            f"modprobe vdmatest test_buf_size={bufsize} iterations={iterations}"
+        )
+        self.console.runcmd(
+            f"rmmod vdmatest.ko; modprobe vdmatest.ko hsize=640 vsize=480"
+        )
+        self.console.runcmd(
+            f"rmmod vdmatest.ko; modprobe vdmatest.ko hsize=1280 vsize=720"
+        )
+        self.console.runcmd(
+            f"rmmod vdmatest.ko; modprobe vdmatest.ko hsize=1920 vsize=1080"
+        )
 
     def dma_print_result(self):
         val1 = self.console.output().count(": summary ")

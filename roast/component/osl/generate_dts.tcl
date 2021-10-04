@@ -12,7 +12,13 @@ proc generate_dts args {
 	repo -set "$repo"
 	platform create -name hw0 -hw $hwdesign
 	set proctype [hsi::get_cells -hier -filter {IP_TYPE==PROCESSOR}]
-	set proc [lindex $proctype 0]
+	set target_proc [string match "*psv_pmc_0*" $proctype]
+	if { $target_proc != 0 } {
+		set proc "psv_cortexa72_0"
+	} else {
+		set proc [lindex $proctype 0]
+	}
+	puts "domain create -name ${board}_dts -proc $proc -os device_tree"
 	domain create -name ${board}_dts -proc $proc -os device_tree
 	# Supported boards:
 	# kc705-full, kc705-lite, ac701-full, ac701-lite, kcu105, zc702, zc706, zedboard,

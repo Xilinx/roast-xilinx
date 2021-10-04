@@ -6,3 +6,5 @@
 from roast.machines.microblaze import *
 
 system_dts = "ac701-full"
+PLNX_BSP = "xilinx-ac701-v{version}-final.bsp"
+plnx_proj = "xilinx-ac701-{version}"

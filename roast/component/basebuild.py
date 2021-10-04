@@ -4,6 +4,7 @@
 #
 
 import os
+import atexit
 import logging
 from roast.utils import setup_logger, reset, mkdir, is_dir, copyDirectory, remove
 from roast.component.system import SystemBase
@@ -34,7 +35,8 @@ class Basebuild(SystemBase):
                 *config.get("params", ""),
                 "work",
             )
-            reset(work_dir)
+            if self.setup:
+                reset(work_dir)
             config["workDir"] = work_dir
 
         self.wsDir = config["wsDir"]
@@ -50,15 +52,21 @@ class Basebuild(SystemBase):
         log_filename = config.get("log_filename")
         console_level = config.get("console_level", logging.INFO)
         file_level = config.get("file_level", logging.DEBUG)
-        console_fmt = config.get("console_fmt", {})
-        file_fmt = config.get("file_fmt", {})
+        console_format = config.get("console_format", "")
+        file_format = config.get("file_format", "")
+        time_format = config.get("time_format", "")
+        report_summary = config.get("report_summary", False)
+        report_tokens = config.get("report_tokens", [])
         self.logger = setup_logger(
             config["logDir"],
-            log_filename,
-            console_level,
-            file_level,
-            console_fmt,
-            file_fmt,
+            log_filename=log_filename,
+            console_level=console_level,
+            file_level=file_level,
+            console_format=console_format,
+            file_format=file_format,
+            time_format=time_format,
+            report_summary=report_summary,
+            report_tokens=report_tokens,
         )
         log.info("Logger setup completed.")
         log.debug(f'wsDir={config["wsDir"]}')
@@ -66,9 +74,10 @@ class Basebuild(SystemBase):
         log.debug(f'logDir={config["logDir"]}')
         log.debug(f'imagesDir={config["imagesDir"]}')
         log.debug(
-            f"logfile={self.logger.handlers[1].baseFilename}, console_level={console_level}, file_level={file_level}"
+            f"logfile={self.logger.log_path}, console_level={console_level}, file_level={file_level}"
         )
-        log.debug(f"console_fmt={console_fmt}, file_fmt={file_fmt}")
+        log.debug(f"console_format={console_format}, file_format={file_format}")
+        atexit.register(self.__del__)
 
     def configure(self):
         if self.setup:

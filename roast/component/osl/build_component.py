@@ -150,7 +150,13 @@ class BuildOsl(Basebuild):
 
             self.src_path = f"{self.config['workDir']}/{self.component}/"
         else:
-            self.src_path = f"{self.external_src}"
+            if self.component not in ["kernel", "kernel_allmodconfig", "uboot"]:
+                rsync(self.console, self.external_src, self.config["workDir"])
+                self.src_path = (
+                    f"{self.config['workDir']}/{get_base_name(self.external_src)}"
+                )
+            else:
+                self.src_path = self.external_src
 
     def configure(self):
         # configure the component
@@ -195,12 +201,7 @@ class BuildDtb(BuildOsl):
             tcl_dir = os.path.dirname(inspect.getsourcefile(roast.component.osl))
             self.tcl = os.path.join(tcl_dir, "generate_dts.tcl")
             self.repo = os.path.join(self.config["workDir"], self.component)
-            self.design = os.path.join(
-                self.config[f"{self.component}_design"],
-                self.variant,
-                self.board,
-                "system.xsa",
-            )
+            self.design = self.config[f"{self.component}_design"]
             cmd = f'unset DISPLAY && {self.config["vitisPath"]}/bin/xsct {self.tcl} {self.design} {self.repo} {self.build_path} {self.config[f"{self.component}_dtg"]}'
         else:
             cmd = f"make dtbs -C {self.src_path} O={self.build_path} {extra_flags}"
@@ -238,13 +239,13 @@ class BuildRootfsModule(BuildOsl):
     def compile(self):
         super().compile()
         cmdlist = [f"make modules -C {self.src_path} O={self.build_path}", "sync"]
-        self.console.runcmd_list(cmdlist, timeout=1000)
+        self.console.runcmd_list(cmdlist, timeout=2000)
         mkdir(self.config["linux_module"])
         cmdlist = [
             f"make modules_install INSTALL_MOD_PATH={self.config['linux_module']} -C {self.src_path} O={self.build_path}",
             "sync",
         ]
-        self.console.runcmd_list(cmdlist, timeout=1000)
+        self.console.runcmd_list(cmdlist, timeout=2000)
         self.generate_rootfs()
 
     def generate_rootfs(self):

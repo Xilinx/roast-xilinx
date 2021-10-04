@@ -6,6 +6,7 @@
 import os
 import sys
 import re
+import atexit
 import shutil
 import subprocess
 from datetime import datetime
@@ -44,7 +45,7 @@ class Petalinux(Basebuild):
     uboot_dir = f"{meta_user}/recipes-bsp/u-boot"
     uboot_bbappend = f"{uboot_dir}/u-boot-xlnx_%.bbappend"
     pmufw_bbappend = f"{pmufw_dir}/pmu-firmware_%.bbappend"
-    plm_bbappend = f"{plm_dir}/plm_%.bbappend"
+    plm_bbappend = f"{plm_dir}/plm-firmware_%.bbappend"
     psmfw_bbappend = f"{psmfw_dir}/psm-firmware_%.bbappend"
     openamp_dir = f"{meta_user}/recipes-openamp"
     libmetal_dir = openamp_dir
@@ -92,6 +93,7 @@ class Petalinux(Basebuild):
         self.qemu_boot = False
         # Acquire bash console.
         self.runner = Xexpect(log, exit_nzero_ret=True)
+        atexit.register(self.__del__)
         myconfs = [
             "RECIPE_NAME",
             "RECIPE_NEW_NAME",
@@ -153,6 +155,8 @@ class Petalinux(Basebuild):
         self.runner.runcmd(cmd=str(cmd), timeout=timeout)
         self.runner.runcmd(f"cd {self.plnx_proj}")
         os.chdir(self.proj_dir)
+        if self.config.get("plnx_init_cmds"):
+            self.runner.runcmd_list(self.config.plnx_init_cmds)
 
     def fetch_project(self):
         """This Function clones petalinux project from git,
@@ -316,40 +320,45 @@ class Petalinux(Basebuild):
                            }
         """
 
+        component_map = {
+            "user-rootfs": {"conf": f"{self.user_rootfs_config}"},
+            "rootfs": {"conf": f"{self.rootfs_config}"},
+            "project": {"conf": f"{self.project_config}"},
+            "kernel": {
+                "conf": f"{self.kernel_dir}/bsp.cfg",
+                "conf_dir": f"{self.kernel_dir}",
+                "bbappend": [
+                    'FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"',
+                    'SRC_URI += "file://bsp.cfg"',
+                ],
+            },
+            "uboot": {
+                "conf": f"{self.uboot_dir}/files/bsp.cfg",
+                "conf_dir": f"{self.uboot_dir}",
+                "bbappend": ['SRC_URI += "file://bsp.cfg"'],
+            },
+            "bspconf": {"conf": f"{self.plnxbspconf_file}"},
+        }
+
+        components = ("plm", "pmufw", "fsbl", "psmfw")
+
         for key, value in self.config["plnx_configs"].items():
             value = convert_list(value)
-            components = ("plm", "pmufw", "fsbl", "psmfw")
-            if "user-rootfs" in key:
+            if key in component_map:
+                if "conf_dir" in component_map[key].keys():
+                    mkdir(str(component_map[key]["conf_dir"]))
+                if "bbappend" in component_map[key].keys():
+                    append_list = convert_list(component_map[key]["bbappend"])
+                    for val in append_list:
+                        add_newline(getattr(self, f"{key}_bbappend"), str(val))
                 for itr in value:
                     itr = parse_config(self.config, itr)
-                    add_newline(f"{self.user_rootfs_config}", str(itr))
-            elif "rootfs" in key:
-                for itr in value:
-                    itr = parse_config(self.config, itr)
-                    add_newline(f"{self.rootfs_config}", itr)
-            elif "project" in key:
-                for itr in value:
-                    itr = parse_config(self.config, itr)
-                    add_newline(f"{self.project_config}", str(itr))
-            elif "kernel" in key:
-                mkdir(self.kernel_dir)
-                add_newline(f"{self.kernel_bbappend}", 'SRC_URI += "file://bsp.cfg"')
-                add_newline(
-                    f"{self.kernel_bbappend}",
-                    'FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"',
-                )
-                for itr in value:
-                    itr = parse_config(self.config, itr)
-                    add_newline(f"{self.kernel_dir}/bsp.cfg", str(itr))
+                    add_newline(str(component_map[key]["conf"]), str(itr))
             elif key in components:
                 mkdir(getattr(self, f"{key}_dir"))
                 for itr in value:
                     itr = parse_config(self.config, itr)
                     add_newline(getattr(self, f"{key}_bbappend"), str(itr))
-            elif "bspconf" in key:
-                for itr in value:
-                    itr = parse_config(self.config, itr)
-                    add_newline(f"{self.plnxbspconf_file}", str(itr))
             else:
                 err_msg = f"Invalid arg {key} in plnx_configs"
                 assert False, err_msg
@@ -490,7 +499,17 @@ class Petalinux(Basebuild):
                     add_newline(
                         bbappend, f'EXTERNALSRC_BUILD = "{self.workDir}/{repo_name}"'
                     )
+                    if value["checksum"]:
+                        add_newline(
+                            bbappend,
+                            f"LIC_FILES_CHKSUM = \"file://license.txt;md5={value['checksum']}\"",
+                        )
                 elif value["url"]:
+                    if value["checksum"]:
+                        add_newline(
+                            bbappend,
+                            f"LIC_FILES_CHKSUM = \"file://license.txt;md5={value['checksum']}\"",
+                        )
                     add_newline(bbappend, f"REPO = \"{value['url']};protocol=https\"")
                     if value["srcrev"]:
                         if value["srcrev"] == "AUTOREV":
@@ -769,10 +788,12 @@ class Petalinux(Basebuild):
 
         """
         if self.config.get("skip_clean_temp"):
-            log.info("INFO: Skipped petaliux project temp clean...")
+            log.info("Skipped petaliux project temp clean...")
         else:
             if self.plnx_tmp:
-                log.info("INFO: Petaliunx project temp clean successful...")
+                log.info(
+                    f"Petaliunx project temp clean successful on path : {self.plnx_tmp} ..."
+                )
                 remove(self.plnx_tmp)
 
         if self.qemu_boot:

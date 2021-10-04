@@ -173,3 +173,15 @@ class FileOps:
             self.device_size = self.console.output()[f"{device}: ":", "]
             self.device_sizes_list.append(self.device_size)
         return self.device_sizes_list
+
+    def get_error_data(self, file_name, error_data=["Error"]):
+        error_results = []
+        with open(file_name, "r") as read_obj:
+            for line in read_obj:
+                if any(s in line for s in error_data):
+                    error_results.append(line.rstrip())
+        if error_results:
+            msg = ""
+            for elem in error_results:
+                msg += f"{elem}\n"
+            return msg

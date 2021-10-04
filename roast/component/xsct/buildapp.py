@@ -18,6 +18,15 @@ from roast.xexpect import Xexpect
 
 log = logging.getLogger(__name__)
 
+expected_failures = [
+    "Timeout while establishing a connection with Vitis",
+    "error while loading shared libraries: *",
+    "Processor type *? is not supported",
+    "Segmentation fault (core dumped)",
+    "Error in setting up Xvfb",
+    "undefined reference to *?\ncollect2.real: error: ld returned 1 exit status",
+]
+
 
 def getdict(data):
     flags = data.split(",")
@@ -201,6 +210,12 @@ class AppBuilder(Basebuild):
             "--do_compile", default="1", choices=["0", "1"], help="Build the project"
         )
         parser.add_argument(
+            "--use_dependency_props",
+            default="1",
+            choices=["0", "1"],
+            help="Use dependency.props",
+        )
+        parser.add_argument(
             "--do_cleanup",
             default="1",
             choices=["0", "1"],
@@ -364,6 +379,8 @@ class AppBuilder(Basebuild):
         if "iar_compilation" in config:
             args["iar_compilation"] = config["iar_compilation"]
 
+        args["use_dependency_props"] = config.get("use_dependency_props", "1")
+
         if "xsct_example_name" in config:
             args["example_name"] = config["xsct_example_name"]
 
@@ -384,9 +401,9 @@ class AppBuilder(Basebuild):
             self.console.runcmd(f"export XSCT_HYPERVISOR={config['XSCT_HYPERVISOR']}")
         dir_path = os.path.dirname(os.path.realpath(__file__))
         self.console.runcmd(f"export SCRIPTS_PYTHON={dir_path}")
-        self.console.runcmd(f"export test_log_path={config.wsDir}/logs")
-        self.console.runcmd(f"export test_work_path={config.wsDir}/work")
-        self.console.runcmd(f"export test_image_path={config.wsDir}/images")
+        self.console.runcmd(f"export test_log_path={config.logDir}")
+        self.console.runcmd(f"export test_work_path={config.workDir}")
+        self.console.runcmd(f"export test_image_path={config.imagesDir}")
 
         if "BUILD_SOURCE" in config:
             self.console.runcmd(f"export BUILD_SOURCE={config['BUILD_SOURCE']}")
@@ -567,11 +584,11 @@ class AppBuilder(Basebuild):
             f"export _JAVA_OPTIONS='-Duser.home={config['workDir']}/.xsct'"
         )
 
-        try:
-            self.console.runcmd(cmd, timeout=1500)
-        except Exception as e:
-            err_msg = "ELF creation Failed"
-            raise Exception(f"ERROR: {err_msg}")
+        self.console.runcmd(
+            cmd,
+            timeout=1500,
+            expected_failures=expected_failures,
+        )
 
         if config.get("build_till_bsp", 0) or check_if_string_in_file(
             f"{config.wsDir}/images/results.txt", "PASS"

@@ -17,6 +17,7 @@ class Flashutil:
         self,
         config,
         board,
+        bootmode,
         flash_type="sflash",
         instance=0,
         type="raw",
@@ -24,16 +25,17 @@ class Flashutil:
     ):
         self.config = config
         self.board = board
+        self.bootmode = bootmode
         self.console = board.serial
         self.xsdb = board.xsdb
         self.instance = instance
         self.uboot_load = uboot_load
         self.flash_type = flash_type
-        self.__setup__()
+        self._setup()
 
-    def __setup__(self):
+    def _setup(self):
         if self.uboot_load:
-            load_pdi(self.board, self.config["uboot_pdi"])
+            self.xsdb.runcmd(f"device program {self.config['uboot_pdi']}")
             uboot_login(self.console)
         if self.flash_type == "sflash":
             self.flashdev = fs.SerialFlash(self.console)
@@ -41,7 +43,11 @@ class Flashutil:
             self.flashdev = fs.Mmc(self.console, instance=self.instance)
         elif self.flash_type == "fat":
             self.flashdev = fs.Fat(
-                self.config, self.console, self.xsdb, instance=self.instance
+                self.config,
+                self.console,
+                self.xsdb,
+                bootmode=self.bootmode,
+                instance=self.instance,
             )
 
     def _get_len(self, pdi_name):
@@ -88,13 +94,20 @@ class Flashutil:
         Note:
             It will take of flash type
         """
-        if re.search("qspi", bootmode) or re.search("ospi", bootmode):
-            return cls(config, board, flash_type="sflash", uboot_load=uboot_load)
-        elif re.search("sd", bootmode):
-            if re.search("raw", bootmode):
+        if ("qspi" in bootmode) or ("ospi" in bootmode):
+            return cls(
+                config,
+                board,
+                bootmode=bootmode,
+                flash_type="sflash",
+                uboot_load=uboot_load,
+            )
+        elif "sd" in bootmode:
+            if "raw" in bootmode:
                 return cls(
                     config,
                     board,
+                    bootmode=bootmode,
                     flash_type="mmc",
                     instance=0,
                     type="raw",
@@ -104,16 +117,18 @@ class Flashutil:
                 return cls(
                     config,
                     board,
+                    bootmode=bootmode,
                     flash_type="fat",
                     instance=0,
                     type="fat",
                     uboot_load=uboot_load,
                 )
-        elif re.search("mmc", bootmode):
-            if re.search("raw", bootmode):
+        elif "mmc" in bootmode:
+            if "raw" in bootmode:
                 return cls(
                     config,
                     board,
+                    bootmode=bootmode,
                     flash_type="mmc",
                     instance=1,
                     type="raw",
@@ -123,6 +138,7 @@ class Flashutil:
                 return cls(
                     config,
                     board,
+                    bootmode=bootmode,
                     flash_type="fat",
                     instance=1,
                     type="fat",
