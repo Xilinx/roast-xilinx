@@ -43,7 +43,6 @@ class Ethernet(BaseLinux):
         self.client_sudo_login = None
         self.server_user = "root"
         self.server_password = "root"
-
         self.config = config
         self.terminal = console
         self.log = log
@@ -313,12 +312,26 @@ class Ethernet(BaseLinux):
             cmd=f"ls", timeout=20, expected=":~# ", wait_for_prompt=False
         )
 
-    def eth_gravcat(self):
+    def eth_gravcat(self, **kwargs):
+        self.get_client_console()
         cmd = f"gravecat -l 9999 &"
+        self.terminal.sync()
         self.terminal.runcmd(
             cmd=cmd, timeout=20, expected_failures=["ommand", "failed"]
         )
-        self.ping_test()
+        self.client_console.runcmd(
+            f"/usr/bin/gravecat_x86_64 -s {self.boardIp} 9999 4 1000 500",
+            expected="using",
+            timeout=10,
+            wait_for_prompt=False,
+        )
+        time.sleep(600)
+        self.client_console.sendline("\x03")
+        self.client_console.runcmd(
+            cmd="if pgrep gravecat;then kill -9 `pgrep -f gravecat`; fi"
+        )
+        self.terminal.sync()
+        self.ifupdown()
 
     def suspend_resume_eth_wkp(self, platform):
         eth_nodes = ["ff0b0000", "ff0c0000", "ff0d0000", "ff0e0000"]
@@ -377,7 +390,16 @@ class Ethernet(BaseLinux):
             )
 
     def get_client_console(self):
-        if self.config["board_interface"] == "systest":
+        if self.config["eth_host_name"]:
+            self.client_console = Xexpect(
+                hostname=self.config["eth_host_name"],
+                hostip=None,
+                userid=None,
+                password=None,
+                non_interactive=False,
+                log=log,
+            )
+        elif self.config["board_interface"] == "systest":
             client_ip = self.config["systest_host"]
             self.client_console = Xexpect(
                 hostname=client_ip, non_interactive=False, log=log
@@ -422,6 +444,7 @@ class Ethernet(BaseLinux):
         _set_status_init()
 
     def ifplugd(self):
+        self.terminal.runcmd(cmd="ifplugd")
         cmd = f'pgrep -f ifplugd >/dev/null || echo "ifplugd demon not running"'
         self.terminal.runcmd(
             cmd=cmd, timeout=30, expected_failures=["ifplugd demon not running"]
@@ -533,32 +556,63 @@ class Ethernet(BaseLinux):
         self.client_console.runcmd(cmd=cmd_list, timeout=120)
         time.sleep(10)
 
-    def ping_jumbo_frame(self):
+    def update_mtu(self, **kwargs):
+        self.get_client_console()
+        self.log.info(f"Updating MTU size on host and device... : {self.mtu}")
+        self.terminal.runcmd_list(
+            cmd_list=[
+                f"ifconfig {self.eth_interface} down",
+                "sleep 10",
+                f"ifconfig {self.eth_interface} mtu {self.mtu} {self.boardIp}  up",
+                "sleep 5",
+                "ifconfig",
+            ]
+        )
+        time.sleep(5)
+        self.client_console.runcmd_list(
+            cmd_list=[
+                f"sudo ifconfig {self.host_interface} down",
+                "sleep 10",
+                f"sudo ifconfig {self.host_interface} mtu {self.mtu} {self.clientIp} up",
+                "sleep 5",
+                "sudo ifconfig",
+            ]
+        )
+        time.sleep(5)
+        self.terminal.sync()
+
+    def ping_jumbo_frame(self, **kwargs):
         self.get_client_console()
         for mtu in [1500, 2048, 4096, 8192]:
             self.log.info(f"Updating MTU size on device... : {mtu}")
+            self.mtu = mtu
+            self.update_mtu()
+            self.terminal.sync()
+            time.sleep(3)
             self.terminal.runcmd(
-                cmd=f"ifconfig {self.eth_interface} down; ifconfig {self.eth_interface} mtu {mtu} up; ifconfig"
-            )
-            time.sleep(2)
-            self.log.info(f"Updating MTU size on test host... : {mtu}")
-            self.client_console.runcmd(
-                cmd=f"/sbin/ifconfig {self.host_interface} down; /sbin/ifconfig {self.host_interface} mtu {mtu} up; /sbin/ifconfig"
-            )
-            time.sleep(2)
-            self.client_console.runcmd(
-                cmd=f"ping {self.client_ip} -l {mtu} -c 5",
+                cmd=f"ping {self.clientIp} -s {mtu-28} -c 5",
                 timeout=30,
                 expected=" 0% packet loss",
             )
             time.sleep(2)
+        self.mtu = 1500
+        self.update_mtu()
+
+    def mii_test(self, **kwargs):
         self.terminal.runcmd(
-            cmd=f"ifconfig {self.eth_interface} down; ifconfig {self.eth_interface} mtu 1500 up; ifconfig"
+            cmd=f"mii-tool -v {self.eth_interface}", expected="link ok"
         )
-        time.sleep(3)
-        self.client_console.runcmd(
-            cmd=f"/sbin/ifconfig {self.host_interface} down; /sbin/ifconfig {self.host_interface} mtu {mtu} up; /sbin/ifconfig"
+        self.terminal.runcmd(
+            cmd=f"mii-tool --force 10baseT-FD {self.eth_interface}", expected=" "
         )
+        self.terminal.runcmd(cmd=f"mii-tool {self.eth_interface}", expected=": 10 Mbit")
+        self.terminal.runcmd(
+            cmd=f"mii-tool --restart {self.eth_interface}", expected=" "
+        )
+        self.terminal.sync()
+        time.sleep(10)
+        self.ping_test()
+        self.terminal.sync()
 
     def eth_pqueue(self):
         self.client_console.runcmd(cmd="gettest_hostmac", timeout=20)

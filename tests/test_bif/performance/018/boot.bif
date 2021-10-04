@@ -1,0 +1,92 @@
+new_bif:
+{
+image_config {bh_auth_enable}
+  pskfile = /proj/ssw_xhd/verification/ssw-regress/versal_regression/xtf_files/static_files/Perf_Keys/PSK.pem  sskfile = /proj/ssw_xhd/verification/ssw-regress/versal_regression/xtf_files/static_files/Perf_Keys/SSK.pem  init=/proj/ssw_xhd/verification/ssw-regress/versal_regression/xtf_files/static_files/reginit.ini id_code = 0x04ca8093
+ extended_id_code = 0x01 
+ id = 0x1
+ image
+ {
+  name = pmc_subsys
+  id = 0x1c000001
+  partition 
+  {
+      id = 0x2
+      type = bootloader authentication = rsa
+      file = /my_images/versal_plm.elf
+  }
+  partition 
+  {
+      id = 0x3
+      type = pmcdata,load=0xF2000000 file=/my_designs/2020.2/topology_xcvc1902.v2.cdo
+      file = /my_designs/2020.2/versal/tenzing_se1/gen_files/pmc_data.cdo
+  }
+ }
+ image
+ {
+  name = fpd_subsys
+  id = 0x420c003
+  partition 
+  {
+      id = 0x4
+      type = cdo authentication = rsa
+      file = /my_designs/2020.2/versal/tenzing_se1/gen_files/fpd_data.cdo
+  }
+ }
+ image
+ {
+  name = lpd_subsys
+  id = 0x4210002
+  partition 
+  {
+      id = 0x5
+      type = cdo authentication = rsa
+ file=/my_static_files/Perf_Images/dap.cdo
+      file = /my_designs/2020.2/versal/tenzing_se1/gen_files/lpd_data.cdo
+  }
+  partition 
+  {
+      id = 0x6
+      core = psm authentication = rsa
+      file = /my_images/versal_psm_firmware.elf
+  }
+ }
+ image
+ {
+  name = pl_cfi_subsys
+  id = 0x18700000
+  partition 
+  {
+      id = 0x7
+      type = cdo authentication = rsa
+      file = /my_static_files/design_un.rcdo
+  }
+  partition 
+  {
+      id = 0x8
+      type = cdo authentication = rsa
+      file = /my_static_files/Perf_Images/design.rnpi
+  }
+ }
+ image
+ {
+  name = aie_subsys
+  id = 0x421c005
+  partition 
+  {
+      id = 0x9
+      core = aie authentication = rsa
+      file = /my_static_files/Perf_Images/Work_400
+  }
+ }
+ image
+ {
+  name = aie_subsys
+  id = 0x421c005
+  partition 
+  {
+      id = 0xa
+      type = cdo authentication = rsa
+      file = /my_static_files/Perf_Images/ai_engine_data.cdo
+  }
+ }
+}

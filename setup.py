@@ -63,7 +63,7 @@ setup(
     package_data={"": ["*.yaml", "*.tcl", "*.scr"]},
     python_requires=">=3.6, <4",
     install_requires=[
-        "roast>=2.1.0",
+        "roast>=3.0.0.dev15",
     ],
     extras_require={
         "dev": [

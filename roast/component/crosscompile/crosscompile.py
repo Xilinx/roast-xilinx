@@ -36,7 +36,7 @@ class BaseCrossCompile(Basebuild):
     def _setup_args(self):
         if "CARDANO_ROOT" in self.config:
             self.cardano_root = self.config["CARDANO_ROOT"]
-        self.sysroot = self.config["mini_sysroot"]
+        self.sysroot = f"{self.config['aie_lib_wsdir']}/images/mini_sysroot"
         self.lib_file = self.config["lib_file"]
 
     def pre_configure(self):
@@ -62,11 +62,9 @@ class BaseCrossCompile(Basebuild):
         if "AIETOOLS_ROOT" in self.config:
             AIETOOLS_ROOT = self.config.AIETOOLS_ROOT
             SYSROOT = self.config.SYSROOT
-            PFM_XPFM = self.config.PFM_XPFM
             cmdlist = [
                 f"export AIETOOLS_ROOT={AIETOOLS_ROOT}",
                 f"export SYSROOT={SYSROOT}",
-                f"export PFM_XPFM={PFM_XPFM}",
                 f"export PATH={VITIS_DIR}/bin:$PATH",
             ]
             self.console.runcmd_list(cmdlist)
@@ -83,7 +81,7 @@ class BaseCrossCompile(Basebuild):
 
         # Add Cardano Source path to include
         if self.config.get("cardano_app"):
-            self.include_dir.append(f"{self.config.cardano_base_ws_dir}/work/src")
+            self.include_dir.append(f"{self.config.cardano_base_ws_dir}/images/src")
 
         self.include = ["-I" + dir for dir in self.include_dir]
         self.include = " ".join(self.include)
@@ -143,7 +141,7 @@ class BaremetalCrossCompile(BaseCrossCompile):
             f"{self.srcDir}/{src_file_name}.cpp",
         ]
 
-        if self.config.get("file_format") == "eabi":
+        if self.config.get("exe_file_format") == "eabi":
             compile_cmd += [self.config["abi_cmd"]]
 
         cmd = " ".join(compile_cmd)
@@ -163,12 +161,7 @@ class BaremetalCrossCompile(BaseCrossCompile):
             f"{self.srcDir}/{src_file_name}.o",
         ]
 
-        if self.config.get("cardano_app"):
-            link_cmd += [
-                f'{self.config.cardano_base_ws_dir}/work/src/{self.config["cardano_src"]}.o'
-            ]
-
-        if self.config.get("file_format") == "eabi":
+        if self.config.get("exe_file_format") == "eabi":
             link_cmd += [self.config["abi_cmd"]]
 
         link_cmd += [self.app_name["link_flags"]]
@@ -213,7 +206,7 @@ class LinuxCrossCompile(BaseCrossCompile):
                 link_cmd.append(f"{self.workDir}/{cardano_linux_src}")
             else:
                 link_cmd.append(
-                    f"{self.config.cardano_base_ws_dir}/work/src/{self.config['cardano_src']}.cpp"
+                    f"{self.config.cardano_base_ws_dir}/images/src/{self.config['cardano_src']}.cpp"
                 )
 
         link_cmd.append(self.linker_flags)
@@ -246,21 +239,13 @@ def baremetal_runner(config, setup=True):
         proc_list = proc_list[-3:]
         bm.config["xsct_proc_name"] = "_".join(proc_list)
 
-    bm.component_ws_dir = (
-        f"{bm.config['component_ws_dir']}/{bm.config['component']}/"
-        + f"{bm.config['xsct_platform_name']}/"
-        + f"{bm.config['xsct_proc_name']}/"
-        + f"{bm.config['component']}_bsp/bsp/"
-        + f"{bm.config['xsct_proc_name']}"
+    bm.component_ws_dir = os.path.join(
+        bm.config.component_ws_dir, "images", bm.config["xsct_proc_name"]
     )
-
-    bm.ldscript = (
-        f"{bm.config['component_ws_dir']}/{bm.config['component']}/"
-        + f"{bm.config['component']}/src/lscript.ld"
-    )
-
     bm.include_dir += [f"{bm.component_ws_dir}/include"]
+    bm.ldscript = os.path.join(bm.config.component_ws_dir, "images", "lscript.ld")
     bm.lib_dir += [f"{bm.component_ws_dir}/lib"]
+
     if config["HEAP_SIZE"]:
         bm.linker_flags += f" -Xlinker --defsym=_HEAP_SIZE={config['HEAP_SIZE']} "
     bm.linker_flags += f" -Wl,-T -Wl,{bm.ldscript}"
@@ -289,11 +274,16 @@ def linux_runner(config, setup=True):
         config["src_path"] = f"{config.cardano_base_ws_dir}/images"
         copyDirectory(f"{config['src_path']}", bm.workDir)
 
-    bm.include_dir += [f"{config['aie_headers_dir']}"]
+    if config.get("aie_headers_dir"):
+        bm.include_dir += [f"{config['aie_headers_dir']}"]
 
     src_file = "aie_control"
     if config.get("cardano_app"):
         src_file = "aie_control_xrt"
+        if not is_file(f"{bm.srcDir}/{src_file}.cpp"):
+            err_msg = "Cardano build test Failed"
+            log.error(err_msg)
+            raise Exception(err_msg)
 
     bm.lib_dir.append(config.aie_lib_dir)
     bm.configure()

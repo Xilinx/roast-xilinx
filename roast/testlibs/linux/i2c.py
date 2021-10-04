@@ -52,6 +52,23 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
             self.devices = [i.rstrip() for i in self.devices]
             return self.devices
 
+    def detect_channel(self, i2c_chan, channel, i2c_devices):
+        self.console.runcmd(f"i2cdetect -y -r {i2c_chan}", expected="\r\n")
+        self.i2cdetect_output = self.console.output().splitlines()
+        for index, device in enumerate(self.i2c_devices):
+            displacement = int(device[-1], 16)
+            addr_line = device[0]
+            addresses = ["UU", device]
+            for item in self.i2cdetect_output:
+                if f"{addr_line}0: " in item:
+                    item = item.split(": ")[1]
+                    dev_name = self.get_device_name(channel, self.i2c_dev[index])
+                    if item.split()[displacement] in addresses:
+                        self.i2c_detect.append(dev_name)
+                        break
+                    else:
+                        return dev_name
+
     def is_i2c_detect(self, i2c_channels=None, silent_discard=True):
         self.i2c_not_detect = []
         self.i2c_detect = []
@@ -62,21 +79,24 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
             self.i2c_devices = [s[2:] for s in self.i2c_dev]
             self.i2c_devices = [i.lstrip("0") for i in self.i2c_devices]
             i2c_chan = channel.split("-")[-1]
-            self.console.runcmd(f"i2cdetect -y -r {i2c_chan}", expected="\r\n")
-            self.i2cdetect_output = self.console.output().split("\n")
-            for index, device in enumerate(self.i2c_devices):
-                displacement = int(device[-1], 16)
-                addr_line = device[0]
-                addresses = ["UU", device]
-                for item in self.i2cdetect_output:
-                    if f"{addr_line}0: " in item:
-                        item = item.split(": ")[1]
-                        dev_name = self.get_device_name(channel, self.i2c_dev[index])
-                        if item.split()[displacement] in addresses:
-                            self.i2c_detect.append(dev_name)
-                            break
-                        else:
-                            self.i2c_not_detect.append(dev_name)
+            dev_name = self.detect_channel(i2c_chan, channel, self.i2c_devices)
+            if dev_name is None:
+                pass
+            else:
+                for address in self.i2c_devices:
+                    self.console.runcmd(
+                        f"i2ctransfer -y -f {i2c_chan} w1@0x{address} 0x00",
+                        expected="\r\n",
+                    )
+                    self.console.runcmd(
+                        f"i2ctransfer -y -f {i2c_chan} w1@0x{address} 0x00 r1@0x{address}",
+                        expected="\r\n",
+                    )
+                dev_name = self.detect_channel(i2c_chan, channel, self.i2c_devices)
+                if dev_name is None:
+                    continue
+                else:
+                    self.i2c_not_detect.append(dev_name)
         log.info("============== SUMMARY ==============")
         log.info("i2c detected peripherals     : " f"{self.i2c_detect}")
         log.info(f"i2c not detected peripherals : {self.i2c_not_detect}")

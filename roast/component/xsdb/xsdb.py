@@ -5,6 +5,7 @@
 
 import socket
 import os
+import re
 import sys
 import logging
 import atexit
@@ -246,7 +247,15 @@ class Xsdb(Xexpect):
         except Exception as e:
             self.set_proc("DPC")
             self.runcmd("mrd -bin 0xf2019000 1000", expected="Register Dump")
-            raise Exception(e) from None
+            err_match_obj = re.search(
+                "PLM Error Status: .*", self.output(), re.IGNORECASE
+            )
+            if err_match_obj:
+                log.error(err_match_obj.group())
+                raise Exception(err_match_obj.group())
+            else:
+                log.error(e)
+                raise Exception(e) from None
 
     def fpga(self, bit_file, timeout=200) -> None:
         """This method is used to load bit stream in to target

@@ -43,25 +43,13 @@ def run_std_app(board, procname, load_boot_pdi=False):
 
 def run_aie_demo(board):
     board.serial.prompt = "# "
-    rst_list = [
-        "devmem 0xF70A000C w 0xF9E8D7C6",
-        "devmem 0xF70A0000 w 0x4000000",
-        "devmem 0xF70A0004 w 0x40381B1",
-        "devmem 0xF70A0000 w 0x4000000",
-        "devmem 0xF70A0004 w 0x00381B1",
-        "devmem 0xF70A000C w 0x12341234",
-    ]
-
-    board.serial.runcmd_list(rst_list)
-    board.serial.runcmd("cd /lib/firmware/aie")
-
-    for _ in range(int(board.config.aie_demo_run)):
-        board.serial.runcmd(
-            "time aie-matrix-multiplication",
-            expected="Success!",
-            expected_failures="ERROR: XGeMM Failed!",
-            timeout=600,
-        )
+    board.serial.runcmd(
+        "aie-matrix-multiplication",
+        expected="Success!",
+        expected_failures="ERROR: XGeMM Failed!",
+        timeout=600,
+        err_msg="aie-matrix-multiplication Failed!",
+    )
 
 
 def copy_linux_app(board):
@@ -78,6 +66,14 @@ def copy_linux_app(board):
 def run_linux_app(board):
     test = board.config["test"]
     wait_for_prompt = False if test == "clock_gating" else True
+    board.serial.runcmd("lsmod", expected="\r\n")
+    if "zocl" in board.serial.output():
+        board.serial.runcmd("rmmod zocl &> /dev/null")
+        board.serial.runcmd(
+            "modprobe zocl",
+            expected="Initialized zocl",
+            err_msg="Loading zocl module failed",
+        )
     try:
         if board.config.get("cardano_app"):
             cmd = "./aie_control_xrt.run ./aie_xrt.xclbin"
@@ -115,7 +111,6 @@ def petalinux_aie_boot(config, board_session, boottype):
     config["plnx_proj"] = config["PLNX_BSP"]
     config["load_interface"] = "tcl"
     config["boottype"] = boottype
-    config.pop("board_init_files", None)
     plnx_bsp_path = get_original_path(f"{config.BSP_PATH}/{config.PLNX_BSP}")
 
     # check for PLNX BSP before acquiring board

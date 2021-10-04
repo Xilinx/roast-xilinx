@@ -85,6 +85,19 @@ class MtdLinux:
         self.console.runcmd(
             cmd,
             expected="finished",
-            expected_failures=f"{module}: error:",
+            expected_failures=[
+                f"{module}: error -22 occurred",
+                "mtd_test: error -22 while erasing EB 0",
+                "spi_master spi0: Failed to power device: -22",
+            ],
             timeout=timeout,
         )
+
+    def mtdperftest(self, mtd_num, size, count, offset, block_size):
+        self.console.sync()
+        cmdlist = [
+            f"dd if=/dev/urandom of=/tmp/random.bin bs={size} count={count}",
+            f"time mtd_debug write /dev/mtd{mtd_num} {offset} {block_size} /tmp/write.bin",
+            f"time mtd_debug read /dev/mtd{mtd_num} {offset} {block_size} /tmp/read.bin",
+        ]
+        self.console.runcmd_list(cmdlist, expected="\r\n")

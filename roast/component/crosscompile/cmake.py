@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 class Cmake(Xexpect):
     def __init__(self, config, log):
-        super(Cmake, self).__init__(log)
+        super().__init__(log, exit_nzero_ret=True)
         self.config = config
         self._configure()
         self._create_mini_sysroot()
@@ -75,8 +75,14 @@ set( LIBUDEV_INCLUDE_DIR "{include_dirs[0]}" )
         self.mini_sysroot_dir = f"{self.config['workDir']}/mini_sysroot"
         mkdir(self.mini_sysroot_dir)
         self.runcmd(f"cd {self.mini_sysroot_dir}")
-        for rpm in get_files(self.config["rpm_dir"], "rpm"):
-            self.runcmd(f"rpm2cpio {self.config['rpm_dir']}{rpm} | cpio -idmv")
+        if self.config.get("rpm_dir"):
+            files = get_files(self.config["rpm_dir"], extension="rpm")
+            if not files:
+                err_msg = f"RPMs not found in {self.config['rpm_dir']}"
+                log.error(err_msg)
+                raise Exception(err_msg)
+            for rpm in get_files(self.config["rpm_dir"], "rpm"):
+                self.runcmd(f"rpm2cpio {self.config['rpm_dir']}{rpm} | cpio -idmv")
         self.mini_sysroot_include = f"{self.mini_sysroot_dir}/usr/include"
         self.mini_sysroot_lib = f"{self.mini_sysroot_dir}/usr/lib"
         mkdir(f"{self.mini_sysroot_dir}/lib")
@@ -152,9 +158,6 @@ def aie_linux_lib_builder(config):
     bc = Basebuild(config)
     bc.configure()
     cm = Cmake(config, log)
-    cm.generate_toolchain_cmake(
-        include_dirs=[cm.mini_sysroot_include], lib_dirs=[cm.mini_sysroot_lib]
-    )
 
     # Build AIE Linux Library
     build_aie_lib(cm, config.linux_lib_component)
@@ -180,5 +183,6 @@ def aie_linux_lib_builder(config):
         f"tar cvfj {config['test']}.tar.xz ./lib*",
     ]
     cm.runcmd_list(cmd_list)
+    copyDirectory(cm.config["mini_sysroot"], f"{cm.config.imagesDir}/mini_sysroot")
     ret = True
     return ret

@@ -39,6 +39,7 @@ class BaseBoot:
         processor.MB = "MicroBlaze*#0"
         processor.PSU = "PSU"
         processor.ARM = "arm*#0"
+        processor.DPC = "DPC"
         self.proc = processor
 
     def load_pmufw(self, elf_path):
@@ -310,11 +311,11 @@ class BootVersal(BootZynqmp):
         super().__init__(serialcon, xsdbcon, imagesdir, config)
 
     def _linux_boot(self):
+        self.set_proc(self.proc["versal"])
         self.xsdbcon.device_program(self.config["pdi_file"])
-        uboot_login(self.serialcon)
+        self.xsdbcon.stop()
+        sleep(3)
         self.serialcon.prompt = None
-        self.set_proc(self.proc["a72_0"])
-        self.xsdbcon.rst_proc()
         self._load_kernel()
         self._load_rootfs()
         self._load_boot_scr()

@@ -115,7 +115,7 @@ def copy_sd_boot_artifacts(board):
     linuxcons.runcmd(f"sync")
 
 
-def flash_binaries(board, sd_device, binaries=None):
+def flash_binaries(board, sd_device, binaries, timeout):
     """This method performs flashing wic image to SD/eMMC from nfsmount based on the directory path given in
      systest_nw_shared_path.
      Parameters:
@@ -128,7 +128,7 @@ def flash_binaries(board, sd_device, binaries=None):
 
     linuxcons = board.serial
     for image in binaries:
-        linuxcons.runcmd(f"dd if=/nfsroot/{image} of={sd_device}", timeout=1200)
+        linuxcons.runcmd(f"dd if=/nfsroot/{image} of={sd_device}", timeout=timeout)
     umount(linuxcons, "/nfsroot")
     linuxcons.runcmd("df -h")
 
@@ -239,7 +239,12 @@ def copy_rootfs(board, timeout):
     """
     board.serial.runcmd("cd /mnt")
     board.serial.runcmd(f"cp /nfsroot/{board.config['rootfs']} /mnt", timeout=timeout)
-    board.serial.runcmd(f"tar xvf {board.config['rootfs']}", timeout=timeout)
+    if board.config["rootfs"].endswith("cpio.gz"):
+        board.serial.runcmd(f"gzip -d {board.config['rootfs']}", timeout=timeout)
+        rootfs_cpio = re.sub(r"\.gz$", "", board.config["rootfs"])
+        board.serial.runcmd(f"cpio -idm < {rootfs_cpio}", timeout=timeout)
+    else:
+        board.serial.runcmd(f"tar xvf {board.config['rootfs']}", timeout=timeout)
 
 
 def zynqmp_bootmode_sd(board, boot_device):
@@ -264,11 +269,11 @@ def sd_prep_fat32(board, boot_device="SD"):
     fat32(board, sd_device)
 
 
-def sd_flash_wic(board, boot_device="SD"):
+def sd_flash_wic(board, boot_device="SD", timeout=1200):
     is_sd(board)
     sd_device = find_sdmount_point(board, boot_device)
     nfs_mount(board)
-    flash_binaries(board, sd_device, board.config["wic_image_name"])
+    flash_binaries(board, sd_device, board.config["wic_image_name"], timeout)
 
 
 def sd_prep_ext4(board, boot_device="SD"):
@@ -283,8 +288,12 @@ def sd_boot(board, boot_device="SD"):
     board.systest.reboot()
     if not board.xsdb:
         board.xsdb = Xsdb(board.config, hwserver=board.config["systest_host"])
-
-    board.serial = Serial("systest", board.config, mode=True).driver
+    if "port" in board.config:
+        board.serial = Serial(
+            "systest", board.config, mode=True, port=board.config["port"]
+        ).driver
+    else:
+        board.serial = Serial("systest", board.config, mode=True, port="serial").driver
     if board.config["platform"] == "zynq":
         board.systest.runcmd("bootmode 'sd'")
         board.serial.mode = True

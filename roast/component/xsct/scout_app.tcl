@@ -24,6 +24,7 @@ set option {
 	{arch.arg              "64"                "32/64 bit architecture"}
 	{do_compile.arg        "1"                 "Build the project, Default is True"}
 	{do_cleanup.arg        "1"                 "Cleanup the project after build, Default is True"}
+	{use_dependency_props.arg  "1"             "Use dependency.props"}
 	{forceconf.arg         "0"                 "Apply the yaml comfigs on existing project"}
 	{yamlconf.arg          ""                  "Path to Config File"}
 	{extension.arg         ""                  "Run time functions to perform"}
@@ -56,7 +57,9 @@ set skip_examples [split $params(skip_examples) {,}]
 proc build {type name} {
 	if { $::params(iar_compilation) } {
 		set bsp_path "$::params(ws)/$::params(hwpname)/$::params(processor)/$::params(bspname)/bsp/$::params(processor)"
-		exec make BSP_DIR=$bsp_path -C "$::params(ws)/$::params(pname)/src"
+		if { [catch {exec make BSP_DIR=$bsp_path -C $::params(ws)/$::params(pname)/src} result] } {
+			puts "INFO: $result"
+		}
 	} else {
 		$type build -name $name
 	}
@@ -190,7 +193,7 @@ proc compute_latest_ver { component } {
 	set second [lindex $list [expr [llength $list] - 2]]
 	set output $::params(processor)
 
-	if { [ expr [llength $list] >= 3 ] && [string match "*cips*" $output] } {
+	if { [ expr [llength $list] >= 3 ] && [string match -nocase "*cips*" $output] } {
 		set third [lindex $list [expr [llength $list] - 3]]
 		set output ${third}_${second}_${first}
 	}
@@ -292,7 +295,7 @@ proc verify_elf {new_elf_name default_elf_dir_path default_elf_name} {
 	set data ""
 	set elf_path "$default_elf_dir_path/$default_elf_name"
 	if { $::params(iar_compilation) } {
-		set elf_path "$default_elf_dir_path/../$::params(pname)/src/executable.out"
+		set elf_path "$default_elf_dir_path/../src/executable.out"
 	}
 	set fileId [open "$::env(test_image_path)/results.txt" "a+"]
 	if { [is_file "$elf_path"] } {
@@ -330,6 +333,10 @@ proc get_example_list {dir} {
     } else {
         set filelist [glob -type f $dir/examples/*.c]
     }
+
+	if { $::params(use_dependency_props) eq 0} {
+		lappend filelist "$dir/examples/$::params(example_name).c"
+	}
 
     return $filelist
 }
@@ -579,6 +586,7 @@ proc get_dir_name {} {
 			}
 		}
 	} elseif {$::params(library_name) ne ""} {
+		set ::env(library_name) $::params(library_name)
 		set complist [compute_latest_ver "library"]
 		set library_full_name [get_comp_name_ver $::params(library_name) $complist]
 		set dir "$::params(rp)/lib/sw_services/$library_full_name"

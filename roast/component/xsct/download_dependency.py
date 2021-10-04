@@ -20,11 +20,13 @@ def dependency_list(driver_path, test_name, destination_path):
         if str(file) == "dependencies.props":
             with open(str(data_path) + "/dependencies.props") as f:
                 content = f.readlines()
-                content = [x.rstrip() for x in content]
+                content = [x.strip() for x in content]
                 for item in content:
+                    if not ".c" in item:
+                        continue
                     templist.append([x.strip() for x in item.split("=")])
-                for list in templist:
-                    dictionary[list[0]] = list[1].split(",")
+                for item in templist:
+                    dictionary[item[0]] = [x.strip() for x in item[1].split(",")]
                 if example_name not in dictionary:
                     print("Example Not found")
                     break
