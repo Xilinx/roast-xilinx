@@ -259,7 +259,7 @@ class Xsdb(Xexpect):
 
     def fpga(self, bit_file, timeout=200) -> None:
         """This method is used to load bit stream in to target
-        parameters :
+        Parameters:
                 bit_file : Path to bit file
         """
         bit_file = get_original_path(bit_file)

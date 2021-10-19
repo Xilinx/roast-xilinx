@@ -279,6 +279,7 @@ class Petalinux(Basebuild):
 
     def get_hwdesign(self, timeout: int = 600) -> None:
         """This Function apply hardware design file(.xsa) on petalinux project
+
         Parameter:
             hw_design_path : .xsa file path
         """
@@ -302,13 +303,6 @@ class Petalinux(Basebuild):
 
     def set_config(self):
         """This Function apply the user configs on petalinux project
-
-        Parameter:
-            plnx_configs : it is a dictionary
-        >>> rootfs  - Update/Add rootfs configs
-            project - Update/Add plnx project configs
-            kernel  - Update/Add kernel configs
-            bspconf - Update/Add local.conf configs
 
         >>> Usage:
             plnx_configs = { rootfs :   [ 'CONFIG_xen=y',
@@ -403,6 +397,7 @@ class Petalinux(Basebuild):
     def apply_external_component(self):
         """This function adds support to apply external src on petalinux project
             for kernel, uboot, atf, fsbl, xen, openamp components
+
         Parameters:
             url - component git url
             externalsrc - local src path
@@ -531,6 +526,7 @@ class Petalinux(Basebuild):
 
         Parameter:
             plnx_user_dtsi_files : user .dtsi file
+
         >>> Usage:
             plnx_user_dtsi_files = ['<path to dtsi file>']
         """
@@ -554,6 +550,7 @@ class Petalinux(Basebuild):
 
         Parameter:
            plnx_user_dtsi_file : user .dtsi file
+
         >>> Usage:
             plnx_user_dtsi_file = 'path to user dtsi file'
         """

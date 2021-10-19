@@ -68,8 +68,8 @@ def scp(board):
     """This method copies images to /mnt through scp
     Parameters:
         board : object of Board class
-        images_path : image directory path from which the images should be
-                      copied to /mnt
+        images_path : image directory path from which the images should be copied to /mnt
+
     >>> Usage:
         sd_boot_artifacts = ['boot.scr', 'BOOT.BIN', 'image.ub', 'system.dtb'
                              'rootfs.tar.gz']
@@ -117,13 +117,14 @@ def copy_sd_boot_artifacts(board):
 
 def flash_binaries(board, sd_device, binaries, timeout):
     """This method performs flashing wic image to SD/eMMC from nfsmount based on the directory path given in
-     systest_nw_shared_path.
-     Parameters:
-         board : object of Board class
-         sd_device : the return value of find_sdmount_point
-         binaries : List of binaries to be flased
+    systest_nw_shared_path.
+    Parameters:
+        board : object of Board class
+        sd_device : the return value of find_sdmount_point
+        binaries : List of binaries to be flased
+
     >>> Usage:
-         flash_binaries(board, sd_device, config['petalinux-sdimage.wic']
+        flash_binaries(board, sd_device, config['petalinux-sdimage.wic']
     """
 
     linuxcons = board.serial
