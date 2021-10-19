@@ -21,15 +21,21 @@ class DmaLinux(DtsLinux, SysDevices, BaseLinux):
         return self.get_channels(self.dma_dts_nodes, "dma")
 
     def dma_run(self, timeout=60):
+        self.console.runcmd("echo > /var/log/messages")
         self.console.runcmd(
             f"echo 1 > {self.sys_dmatest}/run; sleep {timeout}; \r\n",
+            timeout=timeout + 60,
+        )
+        self.console.sync()
+        self.console.runcmd(
+            "cat /var/log/messages",
             expected=self.console.prompt,
             expected_failures=[
                 "Could not start test",
                 "no channels configured",
                 "Device or resource busy",
             ],
-            timeout=timeout + 60,
+            timeout=60,
             wait_for_prompt=False,
         )
 

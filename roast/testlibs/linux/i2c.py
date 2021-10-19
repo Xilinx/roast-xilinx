@@ -157,12 +157,7 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
         self.i2c_channels = self.get_channels(self.i2c_nodes, "i2c")
         return self.is_i2c_detect(self.i2c_channels, silent_discard=silent_discard)
 
-    def i2c_transfer(
-        self,
-        write_bytes_count,
-        i2c_command,
-        read_bytes_count,
-    ):
+    def i2c_transfer(self, write_bytes_count, i2c_command, read_bytes_count):
         cmd = (
             f"i2ctransfer -f -y {self.i2c_bus_number} "
             f"w{write_bytes_count}@0x{self.i2c_slave_address} "
@@ -313,6 +308,20 @@ class I2cLinux(FileOps, DtsLinux, SysDevices, Kconfig, BaseLinux):
         self.console.runcmd(f"rm {eeprom_w} {eeprom_r}")
         if not diff:
             assert False, "eeprom write read with file test failed"
+
+    def eeprom_read(self, eeprom_i2c_bus, eeprom_address, numbData="100", offset="1"):
+        eeprom_r1 = "/tmp/eeprom_read1"
+        eeprom_r2 = "/tmp/eeprom_read2"
+        eeprom_read_cmd = (
+            f"eeprom -d /dev/i2c-{eeprom_i2c_bus} -a 0x{eeprom_address} "
+            f"-n {numbData} -o {offset}"
+        )
+        self.console.runcmd(f"{eeprom_read_cmd} -f {eeprom_r1}")
+        self.console.runcmd(f"{eeprom_read_cmd} -f {eeprom_r2}")
+        diff = self.compfile(eeprom_r1, eeprom_r2)
+        self.console.runcmd(f"rm {eeprom_r1} {eeprom_r2}")
+        if not diff:
+            assert False, "eeprom read test failed"
 
     def eeprom_rw_incremental_iterations(
         self,

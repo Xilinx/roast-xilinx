@@ -18,7 +18,7 @@ class MtdLinux:
         self.mtd_list = []
         for x in items:
             self.mtd_device = x.split(":")[0]
-            self.mtd_num = self.mtd_device[-1]
+            self.mtd_num = int("".join(filter(str.isdigit, self.mtd_device)))
             self.console.runcmd(
                 f"mtd_debug info /dev/{self.mtd_device}", expected="\r\n"
             )
@@ -97,7 +97,7 @@ class MtdLinux:
         self.console.sync()
         cmdlist = [
             f"dd if=/dev/urandom of=/tmp/random.bin bs={size} count={count}",
-            f"time mtd_debug write /dev/mtd{mtd_num} {offset} {block_size} /tmp/write.bin",
+            f"time mtd_debug write /dev/mtd{mtd_num} {offset} {block_size} /tmp/random.bin",
             f"time mtd_debug read /dev/mtd{mtd_num} {offset} {block_size} /tmp/read.bin",
         ]
         self.console.runcmd_list(cmdlist, expected="\r\n")
