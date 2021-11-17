@@ -53,17 +53,19 @@ def create_partition(id, type_data, extra_args, image_path) -> str:
 
 
 def generate_bif(config, format_type: str) -> None:
-    b = BifProvider(seed=config.get("seed"), randomize=config["randomize"])
-    # reconstruct bif data structure
-    bif = tuple()
-    headers, l_components = zip(*config.bif)
-    for header, components in zip(headers, l_components):
-        # config library returns list so cast back to namedtuple
-        header = Header(*header)
-        components = [Component(*component) for component in components]
-        bif = bif + (Block(header, components),)
-    # randomize
-    bif = b.shuffle_sections(bif, config.get("block_constraints", {}))
+
+    if format_type == "new":
+        b = BifProvider(seed=config.get("seed"), randomize=config["randomize"])
+        # reconstruct bif data structure
+        bif = tuple()
+        headers, l_components = zip(*config.bif)
+        for header, components in zip(headers, l_components):
+            # config library returns list so cast back to namedtuple
+            header = Header(*header)
+            components = [Component(*component) for component in components]
+            bif = bif + (Block(header, components),)
+        # randomize
+        bif = b.shuffle_sections(bif, config.get("block_constraints", {}))
 
     bif_path = os.path.join(config["workDir"], config["bifFile"])
     with open(bif_path, "w") as biffile:
@@ -199,7 +201,10 @@ def generate_bif(config, format_type: str) -> None:
             for image in config["bif"]:
                 comp = image[0]
                 value = image[1]
-                bifstr = "[{}] ".format(defdata[comp][0])
+                if defdata[comp][0] == "":
+                    bifstr = ""
+                else:
+                    bifstr = "[{}] ".format(defdata[comp][0])
                 bifstr = bifstring(bifstr, value, config)
                 bifstr = "\t{}\n".format(bifstr)
                 biffile.write(bifstr)
