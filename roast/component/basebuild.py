@@ -56,7 +56,8 @@ class Basebuild(SystemBase):
         file_format = config.get("file_format", "")
         time_format = config.get("time_format", "")
         report_summary = config.get("report_summary", False)
-        report_tokens = config.get("report_tokens", [])
+        search_tokens = config.get("search_tokens", [])
+        error_tokens = config.get("error_tokens", [])
         self.logger = setup_logger(
             config["logDir"],
             log_filename=log_filename,
@@ -66,7 +67,8 @@ class Basebuild(SystemBase):
             file_format=file_format,
             time_format=time_format,
             report_summary=report_summary,
-            report_tokens=report_tokens,
+            search_tokens=search_tokens,
+            error_tokens=error_tokens,
         )
         log.info("Logger setup completed.")
         log.debug(f'wsDir={config["wsDir"]}')

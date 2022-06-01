@@ -25,6 +25,8 @@ expected_failures = [
     "Segmentation fault (core dumped)",
     "Error in setting up Xvfb",
     "undefined reference to *?\ncollect2.real: error: ld returned 1 exit status",
+    "The given processor: *? is not supported in design",
+    "Could not start Dummy XServer",
 ]
 
 
@@ -552,7 +554,7 @@ class AppBuilder(Basebuild):
         cmd = self.get_cmd()
 
         if config.get("iar_compilation") == "1":
-            xtfci_path = f"{config.wsDir}/work"
+            xtfci_path = f"{config.workDir}"
             if not is_file(xtfci_path + "/xtfci.py"):
                 os.system(
                     f"wget https://raw.gitenterprise.xilinx.com/regressions/xtfci/master/xtfci.py -P {xtfci_path}"

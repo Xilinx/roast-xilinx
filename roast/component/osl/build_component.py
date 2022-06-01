@@ -100,7 +100,7 @@ class BuildOsl(Basebuild):
 
     def _setup(self, component):
         self.src_reference = self.config.get(f"git.{component}.reference")
-        self.external_src = self.config.get(f"external_{component}_src")
+        self.external_src = self.config.get(f"external_{component}")
         self.arch = self.config[f"{component}_arch"]
         self.compiler = self.config[f"{component}_compiler"]
 
@@ -239,13 +239,13 @@ class BuildRootfsModule(BuildOsl):
     def compile(self):
         super().compile()
         cmdlist = [f"make modules -C {self.src_path} O={self.build_path}", "sync"]
-        self.console.runcmd_list(cmdlist, timeout=2000)
+        self.console.runcmd_list(cmdlist, timeout=3600)
         mkdir(self.config["linux_module"])
         cmdlist = [
             f"make modules_install INSTALL_MOD_PATH={self.config['linux_module']} -C {self.src_path} O={self.build_path}",
             "sync",
         ]
-        self.console.runcmd_list(cmdlist, timeout=2000)
+        self.console.runcmd_list(cmdlist, timeout=3600)
         self.generate_rootfs()
 
     def generate_rootfs(self):
@@ -255,6 +255,20 @@ class BuildRootfsModule(BuildOsl):
         ]
         self.src_rootfs = os.path.join(self.src_rootfs_path, self.src_rootfs_file)
         self.dest_rootfs = os.path.join(self.config["imagesDir"], self.src_rootfs_file)
+        self.console.runcmd(
+            "type fakeroot", err_msg="fakeroot not installed on machine"
+        )
+        self.console.runcmd(
+            "fakeroot", expected=self.console.prompt, wait_for_prompt=False
+        )
+        self.console.runcmd("whoami", expected="root")
+        self.console.runcmd(
+            "bash --norc | cat", expected="bash-", wait_for_prompt=False
+        )
+        self.console.runcmd(
+            r"PS1='\u@\H:\t:\w\$ '", expected=self.console.prompt, wait_for_prompt=False
+        )
+        self.console._setup_init()
         self.console.runcmd(f"cd {self.config['imagesDir']}")
         cmdlist = [f"cpio -idmv --no-absolute-filenames < {self.src_rootfs}", "sync"]
         self.console.runcmd_list(cmdlist, timeout=600)

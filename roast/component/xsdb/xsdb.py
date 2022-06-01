@@ -11,7 +11,7 @@ import logging
 import atexit
 from typing import Optional, List
 from roast.xexpect import Xexpect
-from roast.utils import get_base_name, get_original_path
+from roast.utils import get_base_name, get_original_path, is_file
 
 log = logging.getLogger(__name__)
 
@@ -235,6 +235,9 @@ class Xsdb(Xexpect):
             pdi_file = os.path.join(self.config["imagesDir"], "boot.pdi")
 
         pdi_file = get_original_path(pdi_file)
+        assert is_file(
+            filepath=pdi_file, silent_discard=False
+        ), f"File does not exist: {pdi_file}"
         f_msgs = [
             "Configuration timed out waiting for DONE",
             "No supported device found",

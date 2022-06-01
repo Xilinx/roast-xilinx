@@ -21,3 +21,7 @@ class NandLinux(MtdLinux, Kconfig, DtsLinux, BaseLinux, FileOps):
     def isUp(self, peripheral):
         self.capture_dmesg()
         return self.is_mtd_exist(peripheral)
+
+    def nandtest(self, mtd_num, count):
+        # Validate nand driver
+        self.console.runcmd(f"nandtest -p {count} /dev/mtd{mtd_num}")

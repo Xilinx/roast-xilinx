@@ -11,8 +11,6 @@ from roast.xexpect import Xexpect
 from roast.component.basebuild import Basebuild
 from roast.utils import *  # pylint: disable=unused-wildcard-import
 
-log = logging.getLogger(__name__)
-
 
 class BaseCrossCompile(Basebuild):
     def __init__(self, config, app_name, setup=True):
@@ -36,7 +34,6 @@ class BaseCrossCompile(Basebuild):
     def _setup_args(self):
         if "CARDANO_ROOT" in self.config:
             self.cardano_root = self.config["CARDANO_ROOT"]
-        self.sysroot = f"{self.config['aie_lib_wsdir']}/images/mini_sysroot"
         self.lib_file = self.config["lib_file"]
 
     def pre_configure(self):
@@ -45,7 +42,7 @@ class BaseCrossCompile(Basebuild):
         self._copy_src()
         self.compiler_flags = ""
         self.linker_flags = ""
-        self.include_dir = [self.workDir]
+        self.include_dir = []
         self.lib_dir = []
 
     def configure(self):
@@ -61,21 +58,19 @@ class BaseCrossCompile(Basebuild):
         self.console.runcmd_list(cmdlist)
         if "AIETOOLS_ROOT" in self.config:
             AIETOOLS_ROOT = self.config.AIETOOLS_ROOT
-            SYSROOT = self.config.SYSROOT
             cmdlist = [
                 f"export AIETOOLS_ROOT={AIETOOLS_ROOT}",
-                f"export SYSROOT={SYSROOT}",
                 f"export PATH={VITIS_DIR}/bin:$PATH",
             ]
             self.console.runcmd_list(cmdlist)
-            self.include_dir.append(f"{AIETOOLS_ROOT}/include")
-            self.lib_dir += [f"{AIETOOLS_ROOT}/lib/{self.lib_file}.o/"]
 
+        # Add user include paths
         if "user_include_path" in self.config:
             for path in self.config.user_include_path:
                 path = parse_config(self.config, path)
                 self.include_dir += [path]
 
+        # Add user compiler flags
         if "user_compiler_flags" in self.config:
             self.compiler_flags += self.config.user_compiler_flags
 
@@ -86,6 +81,7 @@ class BaseCrossCompile(Basebuild):
         self.include = ["-I" + dir for dir in self.include_dir]
         self.include = " ".join(self.include)
 
+        # Add user library paths
         if "user_lib_path" in self.config:
             for path in self.config.user_lib_path:
                 path = parse_config(self.config, path)
@@ -94,7 +90,8 @@ class BaseCrossCompile(Basebuild):
         self.lib = ["-L" + dir for dir in self.lib_dir]
         self.lib = " ".join(self.lib)
 
-        if "user_linker_flags" in self.config:
+        # Add user linker flags
+        if self.config.get("user_linker_flags"):
             self.linker_flags += self.config.user_linker_flags
 
     def deploy(self, src_file_name):
@@ -154,7 +151,6 @@ class BaremetalCrossCompile(BaseCrossCompile):
             self.app_name["compiler"][self.config["param"]],
             " -v",
             self.app_name["procname"][self.config["param"]],
-            self.linker_flags,
             f"{self.lib}",
             "-o",
             f"{self.workDir}/{src_file_name}.{self.app_name['exe']}",
@@ -164,7 +160,7 @@ class BaremetalCrossCompile(BaseCrossCompile):
         if self.config.get("exe_file_format") == "eabi":
             link_cmd += [self.config["abi_cmd"]]
 
-        link_cmd += [self.app_name["link_flags"]]
+        link_cmd += [self.app_name["link_flags"] + self.linker_flags]
 
         cmd = " ".join(link_cmd)
         self.console.runcmd(cmd, err_msg="Baremetal Linking Failed")
@@ -172,24 +168,31 @@ class BaremetalCrossCompile(BaseCrossCompile):
 
 
 class LinuxCrossCompile(BaseCrossCompile):
-    def compile(self, src_file_name):
-        sysroot = ""
-        sysroot_opts = ""
-        # Add sysroot if defined in config to linking flags
-        if "SYSROOT" in self.config:
-            sysroot = self.config.SYSROOT
-            sysroot_opts = f"--sysroot {sysroot}"
-            self.include = (
-                f"-I{sysroot}/usr/include -I{sysroot}/usr/include/xrt {self.include}"
+    def pre_configure_linux(self, base_ws_dir=None, sysroot_providers=None):
+        # initialize empty sysroot
+        self.sysroot_opts = ""
+        # Generate the app_sysroot.
+        app_sysroot = os.path.join(self.config.workDir, "app_sysroot")
+        mkdir(app_sysroot)
+        # Copy sysroot_providers
+        for app in sysroot_providers:
+            provider_path = os.path.join(
+                base_ws_dir, *app, "images", "sysroot-provider"
             )
-            # Copy Sysroot libs
-            libs_dir = os.path.join(self.config["workDir"], "libs")
-            copy_match_files(f"{sysroot}/usr/lib", libs_dir, "libxrt*")
-            self.lib = f"-L{libs_dir} {self.lib}"
+            # raise error if sysroot-provider doesnt exist
+            is_dir(provider_path, False)
+            # Copy the contents of provider into app_sysroot preserving the sysmlinks
+            copyDirectory(provider_path, app_sysroot, True)
+
+        # Add its include and lib paths
+        self.include_dir += [os.path.join(app_sysroot, "include")]
+        self.lib_dir += [os.path.join(app_sysroot, "lib")]
+
+    def compile(self, src_file_name):
 
         link_cmd = [
             self.app_name["compiler"][self.config["param"]],
-            sysroot_opts,
+            self.sysroot_opts,
             self.compiler_flags,
             self.app_name["compile_flags"],
             self.include,
@@ -209,8 +212,8 @@ class LinuxCrossCompile(BaseCrossCompile):
                     f"{self.config.cardano_base_ws_dir}/images/src/{self.config['cardano_src']}.cpp"
                 )
 
-        link_cmd.append(self.linker_flags)
         link_cmd.append(self.app_name["link_flags"])
+        link_cmd.append(self.linker_flags)
 
         cmd = " ".join(link_cmd)
         self.console.runcmd(cmd, err_msg="Linux Cross Compilation Failed")
@@ -244,7 +247,10 @@ def baremetal_runner(config, setup=True):
     )
     bm.include_dir += [f"{bm.component_ws_dir}/include"]
     bm.ldscript = os.path.join(bm.config.component_ws_dir, "images", "lscript.ld")
-    bm.lib_dir += [f"{bm.component_ws_dir}/lib"]
+    bm.lib_dir += [
+        f"{bm.component_ws_dir}/lib",
+        f"{config.AIETOOLS_ROOT}/lib/{config.lib_file}.o/",
+    ]
 
     if config["HEAP_SIZE"]:
         bm.linker_flags += f" -Xlinker --defsym=_HEAP_SIZE={config['HEAP_SIZE']} "
@@ -261,31 +267,46 @@ def linux_runner(config, setup=True):
         "compiler": {"linux": "aarch64-linux-gnu-g++"},
         "compile_flags": "-DPS_ENABLE_AIE -DXAIE_DEBUG -DUSE_XRT",
         "procname": {"linux": ""},
-        "link_flags": "-lstdc++ -ladf_api_xrt -lxrt_coreutil -lxrt_core -lxaiengine",
+        "link_flags": "-lstdc++ -lxaiengine ",
         "exe": "run",
     }
+    src_file = "aie_control"
+
     bm = LinuxCrossCompile(config, app_name, setup)
     bm.pre_configure()
+    bm.pre_configure_linux(
+        base_ws_dir=config.base_ws_dir,
+        sysroot_providers=config.get("sysroot_providers"),
+    )
 
     if config.get("cardano_app"):
+        # Get cardano application built base dir
         bm.config.cardano_base_ws_dir = os.path.join(
             config.buildDir, "/".join(config.test_path_list), "cardano"
         )
         config["src_path"] = f"{config.cardano_base_ws_dir}/images"
         copyDirectory(f"{config['src_path']}", bm.workDir)
 
-    if config.get("aie_headers_dir"):
-        bm.include_dir += [f"{config['aie_headers_dir']}"]
+        # Add adf header files and libs
+        bm.include_dir.append(f"{config.AIETOOLS_ROOT}/include")
+        bm.lib_dir += [f"{config.AIETOOLS_ROOT}/lib/{config.lib_file}.o/"]
 
-    src_file = "aie_control"
-    if config.get("cardano_app"):
+        # Leverage XRT source code for cross compiling.
         src_file = "aie_control_xrt"
         if not is_file(f"{bm.srcDir}/{src_file}.cpp"):
             err_msg = "Cardano build test Failed"
             log.error(err_msg)
             raise Exception(err_msg)
 
-    bm.lib_dir.append(config.aie_lib_dir)
+    if config.get("xrt_app") or config.get("cardano_app"):
+        # Add sysroot if defined in config to linking flags
+        sysroot = config.get("XRT_SYSROOT")
+        if sysroot:
+            bm.sysroot_opts = f"--sysroot {sysroot}"
+            bm.include_dir.append(f"{sysroot}/usr/include/xrt")
+
     bm.configure()
     bm.compile(src_file)
     bm.deploy(src_file)
+    # Return the instance to leverage in self tests.
+    return bm

@@ -12,7 +12,6 @@ from importlib import import_module
 from roast.utils import *  # pylint: disable=unused-wildcard-import
 from roast.component.basebuild import Basebuild
 from roast.providers.randomizer import Randomizer
-from roast.providers.hwflow import HWFlowProvider
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +59,13 @@ class HwbuildRunner(Basebuild):
                 try:
                     import hwflow
 
-                    copy_file(self.design_script, self.design_path)
+                    try:
+                        copy_file(self.design_script, self.design_path)
+                        log.debug("File copied successfully.")
+                    except shutil.SameFileError:
+                        log.debug(
+                            f"Not copying design script.. as it exists {self.design_script}"
+                        )
                     self.hwflow2_0_is_package = True
                 except ImportError:
                     self.source = {
@@ -154,13 +159,16 @@ class HwbuildRunner(Basebuild):
             module_name, _ = os.path.splitext(os.path.basename(self.design_script))
             sys.path.append(f"{design_script_dir}")
             log.debug(f"Going to import module {module_name} ..")
+
+            extra_args = self.config.get("hwflow_extra_args", {})
+
             try:
                 hwflow_module = import_module(module_name)
                 if "main" in dir(hwflow_module):
                     # Add vivado to path, run vivado and remove vivado from path
                     _path_backup = os.environ.copy()["PATH"]
                     os.environ["PATH"] = self.env["PATH"]
-                    hwflow_module.main()
+                    hwflow_module.main(**extra_args)
                     os.environ["PATH"] = _path_backup
                     return True
                 else:
@@ -295,9 +303,7 @@ class HWFlow(HwbuildRunner):
     def __init__(self, config):
         super().__init__(config)
         self.seed = config.get("seed", random.randrange(10000000000))
-        self._randomizer = Randomizer(seed=self.seed)
-        self._randomizer.add_provider(HWFlowProvider)
-        self.randomizer = self._randomizer.hwflow_provider
+        self.randomizer = Randomizer(seed=self.seed)
         self.last_get_node = None
         self.last_get_ip_name = None
 
@@ -320,21 +326,88 @@ class HWFlow(HwbuildRunner):
 
         copy_file(self.design_script, self.design_path)
 
-    def get_random_parameter_values(self):
-        random_parameter_values = {}
+    def get_random_parameter_values(self, auto_reset=False, parameter_file=None):
+        """Picks random or pre-determined values for all the design parameters specified
+        in "random_parameters" configuration input.
+
+        Args:
+            auto_reset (bool, optional): When true, in cases where there is no value
+            available for a paremeter, it resets the excluded values
+            which were picked in previous runs and re-attempts to pick a value before
+            raising a value error. Defaults to False.
+            parameter_file (file path str): When provided it picks the parameter value,
+            from the file if available. Useful to rebuild same design again without
+            modifications or with partial modifications.
+            The JSON file should conatain a flattened dictionary of parameters and values.
+
+        Returns:
+            [dict]: parameter and its selected values.
+        """
+        random_parameters = {}
+        user_parameters = {}
+        if parameter_file:
+            try:
+                user_parameters = read_json(parameter_file)
+            except (IOError, TypeError, ValueError) as e:
+                log.error(f"Unable to load user params from file : {parameter_file}")
+                raise e
+        parameters = self.config.get("random_parameters", [])
+        if user_parameters:
+            for parameter in self.config.get("random_parameters", []):
+                try:
+                    random_parameters[parameter] = user_parameters[parameter]
+                    parameters.remove(parameter)
+                except KeyError:
+                    log.info(
+                        f"{parameter} not found in {parameter_file}, value will be selected randomly"
+                    )
+        for parameter in parameters:
+            try:
+                random_parameters[parameter] = self.randomizer.get_value(parameter)
+            except ValueError as e:
+                if auto_reset:
+                    self.randomizer.reset_excluded(parameter)
+                    random_parameters[parameter] = self.randomizer.get_value(parameter)
+                else:
+                    log.error(f"{parameter} has no valid value choices.")
+                    raise ValueError(f"{parameter} has no valid value choices.") from e
+        return random_parameters
+
+    def get_default_parameter_values(self):
+        """Get the values of attributes/parameters from design, if default value
+        cannot be determined from design, it returns the default value
+        provided by user as attribute default in randomizer parameters file.
+        If no default is found in file as well then, it returns None.
+
+        Returns:
+            [any]: value of parameter or None if unable to determine
+        """
+        default_parameter_values = {}
         for parameter in self.config.get("random_parameters", []):
-            random_parameter_values[parameter] = self.randomizer.pick_parameter_value(
-                parameter
-            )
-        return random_parameter_values
+            try:
+                node_obj = self.get_node_object(parameter)
+                default_parameter_values[parameter] = node_obj.val
+            except (KeyError, AttributeError):
+                try:
+                    param_default_value = self.randomizer.parameters[
+                        f"{parameter}.default"
+                    ]
+                    default_parameter_values[parameter] = param_default_value
+                except KeyError:
+                    log.debug(f"Unable to determine default value for {parameter}")
+                    default_parameter_values[parameter] = None
+        return default_parameter_values
 
     def get_node_object(self, ip):
-        nodes = self.proj.G.nodes(data=True)
+        nodes = self.proj._top_hier.G.nodes(data=True)
         ip_list = ip.split(".")
         _top_ip = ip_list[0]
         node_obj = nodes[_top_ip]["node_obj"]
         for attr in ip_list[1:]:
-            node_obj = getattr(node_obj, attr)
+            try:
+                node_obj = getattr(node_obj, attr)
+            except AttributeError:
+                pass
         self.last_get_node = node_obj
         self.last_get_ip_name = ip
         return node_obj
@@ -360,7 +433,7 @@ class HWFlow(HwbuildRunner):
         if property_name != "val":
             current_value = self.get_node_attr(_node, property_name).val
         if current_value != value:
-            log.debug(f"{_ip_name}.{property_name}={value} was {current_value}")
+            log.info(f"{_ip_name}.{property_name}={value} was {current_value}")
             self.set_node_attr(_node, property_name, value)
 
     def set_simple_node_property(self, value, node=False, ip_name=None):
@@ -371,13 +444,13 @@ class HWFlow(HwbuildRunner):
         self.set_simple_node_property(value)
 
     def get_width_object(self, obj):
-        if obj.parent().type.val == "AXI_EXERCISER":
+        if obj.parent.type.val == "AXI_EXERCISER":
             if obj.direction.val == "input":
-                return obj.parent().c_s_axi_data_width
+                return obj.parent.c_s_axi_data_width
             else:
-                return obj.parent().c_m_axi_data_width
-        elif obj.parent().type.val == "AXI_MONSTUB":
-            return obj.parent().c_axi_data_width
+                return obj.parent.c_m_axi_data_width
+        elif obj.parent.type.val == "AXI_MONSTUB":
+            return obj.parent.c_axi_data_width
         else:
             return None
 
@@ -407,9 +480,11 @@ class HWFlow(HwbuildRunner):
     def get_node_connections(self, obj, direction):
         connections = []
         if direction == "output":
-            for edge in self.proj.G.out_edges(nbunch=[obj.name.val], data=True):
+            for edge in self.proj._top_hier.G.out_edges(
+                nbunch=[obj.name.val], data=True
+            ):
                 if (
-                    edge[2]["edge_obj"].master_ref().portname.val
+                    edge[2]["edge_obj"].master_ref.portname.val
                     == obj.m_axi.portname.val
                 ):
                     connections.append(edge[2]["edge_obj"].slave_ref())
@@ -418,46 +493,44 @@ class HWFlow(HwbuildRunner):
     def get_port_edge(self, obj=None):
         if "PORT" in obj.port_type.val:
             if obj.direction.val == "input":
-                for edge in self.proj.G.out_edges(
-                    nbunch=[obj.parent().name.val], data=True
+                for edge in self.proj._top_hier.G.out_edges(
+                    nbunch=[obj.parent.name.val], data=True
                 ):
                     if (
-                        edge[2]["edge_obj"].master_ref().portname.val
-                        == obj.portname.val
-                        and edge[2]["edge_obj"].master_ref().parent().name.val
-                        == obj.parent().name.val
+                        edge[2]["edge_obj"].master_ref.portname.val == obj.portname.val
+                        and edge[2]["edge_obj"].master_ref.parent.name.val
+                        == obj.parent.name.val
                     ):
                         return edge
             else:
-                for edge in self.proj.G.in_edges(
-                    nbunch=[obj.parent().name.val], data=True
+                for edge in self.proj._top_hier.G.in_edges(
+                    nbunch=[obj.parent.name.val], data=True
                 ):
                     if (
-                        edge[2]["edge_obj"].slave_ref().portname.val == obj.portname.val
-                        and edge[2]["edge_obj"].slave_ref().parent().name.val
-                        == obj.parent().name.val
+                        edge[2]["edge_obj"].slave_ref.portname.val == obj.portname.val
+                        and edge[2]["edge_obj"].slave_ref.parent.name.val
+                        == obj.parent.name.val
                     ):
                         return edge
         else:
             if obj.direction.val == "input":
-                for edge in self.proj.G.in_edges(
-                    nbunch=[obj.parent().name.val], data=True
+                for edge in self.proj._top_hier.G.in_edges(
+                    nbunch=[obj.parent.name.val], data=True
                 ):
                     if (
-                        edge[2]["edge_obj"].slave_ref().portname.val == obj.portname.val
-                        and edge[2]["edge_obj"].slave_ref().parent().name.val
-                        == obj.parent().name.val
+                        edge[2]["edge_obj"].slave_ref.portname.val == obj.portname.val
+                        and edge[2]["edge_obj"].slave_ref.parent.name.val
+                        == obj.parent.name.val
                     ):
                         return edge
             else:
-                for edge in self.proj.G.out_edges(
-                    nbunch=[obj.parent().name.val], data=True
+                for edge in self.proj._top_hier.G.out_edges(
+                    nbunch=[obj.parent.name.val], data=True
                 ):
                     if (
-                        edge[2]["edge_obj"].master_ref().portname.val
-                        == obj.portname.val
-                        and edge[2]["edge_obj"].master_ref().parent().name.val
-                        == obj.parent().name.val
+                        edge[2]["edge_obj"].master_ref.portname.val == obj.portname.val
+                        and edge[2]["edge_obj"].master_ref.parent.name.val
+                        == obj.parent.name.val
                     ):
                         return edge
         return None
@@ -466,47 +539,45 @@ class HWFlow(HwbuildRunner):
         connections = []
         if "PORT" in obj.port_type.val:
             if obj.direction.val == "input":
-                for edge in self.proj.G.out_edges(
-                    nbunch=[obj.parent().name.val], data=True
+                for edge in self.proj._top_hier.G.out_edges(
+                    nbunch=[obj.parent.name.val], data=True
                 ):
                     if (
-                        edge[2]["edge_obj"].master_ref().portname.val
-                        == obj.portname.val
-                        and edge[2]["edge_obj"].master_ref().parent().name.val
-                        == obj.parent().name.val
+                        edge[2]["edge_obj"].master_ref.portname.val == obj.portname.val
+                        and edge[2]["edge_obj"].master_ref.parent.name.val
+                        == obj.parent.name.val
                     ):
                         connections.append(edge[2]["edge_obj"].slave_ref())
 
             else:
-                for edge in self.proj.G.in_edges(
-                    nbunch=[obj.parent().name.val], data=True
+                for edge in self.proj._top_hier.G.in_edges(
+                    nbunch=[obj.parent.name.val], data=True
                 ):
                     if (
-                        edge[2]["edge_obj"].slave_ref().portname.val == obj.portname.val
-                        and edge[2]["edge_obj"].slave_ref().parent().name.val
-                        == obj.parent().name.val
+                        edge[2]["edge_obj"].slave_ref.portname.val == obj.portname.val
+                        and edge[2]["edge_obj"].slave_ref.parent.name.val
+                        == obj.parent.name.val
                     ):
                         connections.append(edge[2]["edge_obj"].master_ref())
         else:
             if obj.direction.val == "input":
-                for edge in self.proj.G.in_edges(
-                    nbunch=[obj.parent().name.val], data=True
+                for edge in self.proj._top_hier.G.in_edges(
+                    nbunch=[obj.parent.name.val], data=True
                 ):
                     if (
-                        edge[2]["edge_obj"].slave_ref().portname.val == obj.portname.val
-                        and edge[2]["edge_obj"].slave_ref().parent().name.val
-                        == obj.parent().name.val
+                        edge[2]["edge_obj"].slave_ref.portname.val == obj.portname.val
+                        and edge[2]["edge_obj"].slave_ref.parent.name.val
+                        == obj.parent.name.val
                     ):
                         connections.append(edge[2]["edge_obj"].master_ref())
             else:
-                for edge in self.proj.G.out_edges(
-                    nbunch=[obj.parent().name.val], data=True
+                for edge in self.proj._top_hier.G.out_edges(
+                    nbunch=[obj.parent.name.val], data=True
                 ):
                     if (
-                        edge[2]["edge_obj"].master_ref().portname.val
-                        == obj.portname.val
-                        and edge[2]["edge_obj"].master_ref().parent().name.val
-                        == obj.parent().name.val
+                        edge[2]["edge_obj"].master_ref.portname.val == obj.portname.val
+                        and edge[2]["edge_obj"].master_ref.parent.name.val
+                        == obj.parent.name.val
                     ):
                         connections.append(edge[2]["edge_obj"].slave_ref())
         return connections

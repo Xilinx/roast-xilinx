@@ -53,7 +53,7 @@ class SerialFlash:
             offset(int, optional): offset of flash to where write data
         """
         self.console.runcmd(
-            f"sf write {addr} {offset} {length}", expected="Written: OK", timeout=600
+            f"sf write {addr} {offset} {length}", expected="Written: OK", timeout=900
         )
 
     def erase(self, length, offset=0):
