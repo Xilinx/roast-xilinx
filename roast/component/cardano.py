@@ -22,29 +22,39 @@ class Cardano(Basebuild):
         super().__init__(config, setup)
         self.console = Xexpect(log, exit_nzero_ret=True)
 
-    def configure(self):
+    def pre_configure(self):
         super().configure()
         self.srcDir = os.path.join(self.workDir, "src")
         self.cdoDir = os.path.join(self.workDir, "Work/ps/cdo")
+        XLNX_LICENSE = self.config["XILINXD_LICENSE_FILE"]
+        self.console.runcmd(f"export XILINXD_LICENSE_FILE={XLNX_LICENSE}")
 
+    def set_aie_tool(self):
+        # CI use case, build with custom cardano tool
+        if self.config.get("external_cardano_src"):
+            AIETOOLS_ROOT = os.path.join(
+                self.config.get("external_cardano_src"), "prep/rdi/aietools"
+            )
+        else:
+            AIETOOLS_ROOT = self.config.AIETOOLS_ROOT
+
+        # Source cardano tool
+        self.console.runcmd(f"export AIETOOLS_ROOT={AIETOOLS_ROOT}")
+        self.console.runcmd(f"export XILINX_VITIS_AIETOOLS={AIETOOLS_ROOT}")
+        # self.console.runcmd(f"source {AIETOOLS_ROOT}/scripts/aietools_env.sh")
+        self.AIETOOLS_ROOT = AIETOOLS_ROOT
+
+    def set_vitis_tool(self):
+        self.pre_configure()
         VITIS_DIR = self.config.vitisPath
-        AIETOOLS_ROOT = self.config.AIETOOLS_ROOT
-        SYSROOT = self.config.SYSROOT
         version_dotless = self.config.version.replace(".", "")
         base_platform = f"{self.config.BASE_PLATFORM_NAME}_{version_dotless}0_{self.config.BASE_PLATFORM_VERSION_EXTENSION}"
         self.PFM_XPFM = os.path.join(
             self.config.PLATFORMS_PATH, base_platform, f"{base_platform}.xpfm"
         )
-        XLNX_LICENSE = self.config["XILINXD_LICENSE_FILE"]
         cmdlist = [
-            f"export XILINXD_LICENSE_FILE={XLNX_LICENSE}",
             f"export VITIS_DIR={VITIS_DIR}",
-            f"export AIETOOLS_ROOT={AIETOOLS_ROOT}",
-            f"export XILINX_VITIS_AIETOOLS={AIETOOLS_ROOT}",
-            f"export SYSROOT={SYSROOT}",
             f"export PFM_XPFM={self.PFM_XPFM}",
-            f"export PATH={VITIS_DIR}/bin:$PATH",
-            f"source {self.config.vitisPath}/settings64.sh",
         ]
         self.console.runcmd_list(cmdlist)
 
@@ -53,7 +63,7 @@ class Cardano(Basebuild):
         self.console.runcmd(f"cd {self.workDir}")
         # compile cardano and generate cdo
         compile_cmd = [
-            "aiecompiler -v",
+            f"{self.AIETOOLS_ROOT}/bin/aiecompiler -v",
             self.config["CARDANO_FLAGS"],
             f'-include="{self.srcDir}/kernels"',
             f'-include="{self.srcDir}"',
@@ -69,7 +79,7 @@ class Cardano(Basebuild):
     def gen_xclbin(self):
 
         gen_cmd = [
-            "v++ -s -p -t hw",
+            f"{self.config.vitisPath}/bin/v++ -s -p -t hw",
             f"--platform {self.PFM_XPFM}",
             f"--package.out_dir {self.workDir} --package.defer_aie_run",
             f"--config {self.config.vpp_package_path}/package.cfg",
@@ -117,18 +127,15 @@ class Cardano(Basebuild):
         return ret
 
     def simulate_cardano_app(self):
-        if self.config.external_aienginev2 and self.config.get("external_cardano_src"):
-            self.config.AIETOOLS_ROOT = (
-                f"{self.config.external_cardano_src}/prep/rdi/aietools"
-            )
-            self.console.runcmd(f"export AIETOOLS_ROOT={self.config.AIETOOLS_ROOT}")
-            self.console.runcmd(
-                f"source {self.config.AIETOOLS_ROOT}/scripts/aietools_env.sh"
-            )
+        """API to simulate cardano applications.
+        Users can specify cardano tool or custom cardano tool
+        """
+
         self.console.runcmd(f"cd {self.workDir}")
+
         if self.config.get("generate_input_data") and self.config.get("generate_src"):
             gen_cmd = [
-                f"{self.config.AIETOOLS_ROOT}/tps/lnx64/gcc/bin/g++",
+                f"{self.AIETOOLS_ROOT}/tps/lnx64/gcc/bin/g++",
                 "-static-libstdc++ -std=c++11",
                 f"-I {self.workDir}/Work/temp/",
                 f"{self.workDir}/src/{self.config.generate_src}.cpp",
@@ -137,44 +144,53 @@ class Cardano(Basebuild):
             cmd = " ".join(gen_cmd)
             self.console.runcmd(cmd)
             self.console.runcmd(f"{self.workDir}/{self.config.generate_src}.out")
+
         timeout = int(self.config.get("simulation_timeout", 700))
         self.console.runcmd(
-            f"aiesimulator --pkg-dir={self.workDir}/Work",
+            f"{self.AIETOOLS_ROOT}/bin/aiesimulator --pkg-dir={self.workDir}/Work",
             timeout=timeout,
             err_msg="Cardano app Simulation Failed",
         )
 
     def incremental_build(self):
-        if self.config.external_aienginev2 and self.config.get("external_cardano_src"):
-            self.config.AIETOOLS_ROOT = (
-                f"{self.config.external_cardano_src}/prep/rdi/aietools"
+        """Build cardano tool incrementally"""
+        # This is only applicable in CI scenarios.
+        if self.config.get("external_aiert_src") and self.config.get(
+            "external_cardano_src"
+        ):
+            # Get aie driver path
+            aie_driver_path = os.path.join(
+                self.config.get("external_aiert_src"), "driver"
             )
-            self.console.runcmd(f"export AIETOOLS_ROOT={self.config.AIETOOLS_ROOT}")
-            self.console.runcmd(
-                f"source {self.config.AIETOOLS_ROOT}/scripts/aietools_env.sh"
-            )
+            cardano_src_path = self.config.get("external_cardano_src")
 
             lock_path = os.path.join(
-                get_abs_path(self.config.external_cardano_src),
+                get_abs_path(cardano_src_path),
                 "src/products/cardano/",
                 "incremental_build.lock",
             )
+            incremental_build_log = os.path.join(
+                cardano_src_path, "logs/incremetal_build.log"
+            )
+
             lock = FileLock(lock_path)
             with lock:
                 build_number = os.getenv("BUILD_NUMBER")
+                # This if consition make sures driver compilation only once for a build
                 if not check_if_string_in_file(
-                    f"{self.config.external_cardano_src}/logs/incremetal_build.log",
+                    incremental_build_log,
                     build_number,
                 ):
+                    # Build driver inside cardano
                     self.console.runcmd(
-                        f"sh {self.config.external_cardano_src}/incremental_build.sh {self.config.external_aienginev2}",
+                        f"sh {cardano_src_path}/incremental_build.sh {aie_driver_path}",
                         expected="Incremental Build SUCCESSFUL",
                         expected_failures=["Incremental Build FAILED"],
                         timeout=3000,
                     )
                 else:
                     if check_if_string_in_file(
-                        f"{self.config.external_cardano_src}/logs/incremetal_build.log",
+                        incremental_build_log,
                         "Incremental Build FAILED",
                     ):
                         raise Exception("ERROR: Incremental Build FAILED")
@@ -182,8 +198,10 @@ class Cardano(Basebuild):
 
 def cardano_builder(config):
     btc = Cardano(config, setup=True)
-    btc.configure()
+    btc.pre_configure()
     btc.incremental_build()
+    btc.set_aie_tool()
+    btc.set_vitis_tool()
     btc.compile_cardano_app()
     btc.gen_xclbin()
     assert btc.copy_images(), "ERROR: Build Cardano Failed!"
@@ -191,7 +209,8 @@ def cardano_builder(config):
 
 def cardano_simulator(config):
     btc = Cardano(config, setup=False)
-    btc.configure()
+    btc.pre_configure()
+    btc.set_aie_tool()
     if not is_file(f"{btc.config.workDir}/aie_xrt.xclbin"):
         log.error(f"No Such File {btc.config.workDir}/aie_xrt.xclbin")
         raise Exception("Build test Failed")
@@ -227,6 +246,28 @@ def get_aienginev2_repo(config, console, aie_src_path, rsync_path=None):
     return aie_src_path
 
 
+def get_aiert_repo(console, git_params=None, external_src=None, dest_path=None):
+
+    if not dest_path:
+        raise ValueError(f"destination path cannot be empty")
+
+    # Copy the contents into aiert directory
+    dest_path = os.path.join(dest_path, "aiert")
+
+    if external_src:
+        # Remove trialing space
+        external_src.rstrip("/")
+        # Copy external source into workdir under component dir
+        console.runcmd(
+            f"rsync -aqv --exclude '.git*' {external_src}/ {dest_path}", timeout=120
+        )
+    else:
+        # Clone the repository into destination path
+        clone(git_params, dest_path)
+
+    return dest_path
+
+
 def update_aienginev2_repo(config, console, esw_path, aie_src_path):
     if config.get("external_embeddedsw"):
         external_esw_src = get_abs_path(config.external_embeddedsw)
@@ -246,23 +287,36 @@ def update_aienginev2_repo(config, console, esw_path, aie_src_path):
 
 
 def baremetal_lib(config, proc, setup=True):
+
     overrides(config, "std")
     overrides(config, proc)
+    repo_path = ""
+
     builder = xsct.AppBuilder(config, setup=setup)
-    args = builder.parser(config)
-    args = builder.clone_esw(args)
-    builder.set_user_args(args)
-    if builder.config.get("xsct_outDir", ""):
-        mkdir(builder.config.xsct_outDir)
 
     if builder.config.get("baremetal_lib_component") == "aienginev2":
         aie_src_path = os.path.join(config.workDir, "aienginev2")
         aie_src_path = get_aienginev2_repo(
             builder.config, builder.console, aie_src_path
         )
-        builder.esw_path = update_aienginev2_repo(
+        repo_path = update_aienginev2_repo(
             builder.config, builder.console, builder.esw_path, aie_src_path
         )
+    elif builder.config.get("baremetal_lib_component") == "aiert":
+        git_params = builder.config.get("git.aiert")
+        external_src = builder.config.get("external_aiert_src")
+        aiert_path = get_aiert_repo(
+            builder.console, git_params, external_src, config.workDir
+        )
+        repo_path = aiert_path
+
+    args = builder.parser(config)
+    if repo_path:
+        args["rp"] = repo_path
+    builder.set_user_args(args)
+
+    if builder.config.get("xsct_outDir", ""):
+        mkdir(builder.config.xsct_outDir)
 
     ret = builder.build_app(config)
     if ret:
@@ -292,6 +346,23 @@ def baremetal_lib(config, proc, setup=True):
             f"{builder.config['imagesDir']}/{builder.config['xsct_proc_name']}",
         )
         copy_file(ldscript, builder.config["imagesDir"])
+
+        # Validate repo
+        if repo_path:
+            xsct_dest_path = os.path.join(
+                builder.config.imagesDir, builder.config.xsct_proc_name, "libsrc"
+            )
+            # Validate aie driver
+            driver_src_path = os.path.join(repo_path, "driver", "src")
+            # Validate aiefal repo
+            fal_src_path = os.path.join(repo_path, "fal", "src")
+            # Compare the sources specified against the generated bsp
+            cmds = [
+                f"diff -qr -x *.o {driver_src_path} {xsct_dest_path}/aienginev2_*/src",
+                f"diff -qr -x *.o {fal_src_path} {xsct_dest_path}/aiefal_*/src",
+            ]
+            builder.console.runcmd_list(cmds)
+
         return ret
     else:
         return ret

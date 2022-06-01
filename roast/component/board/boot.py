@@ -90,9 +90,9 @@ class BootZynqmp(BaseBoot):
         self.set_processor()
 
     def _linux_boot(self):
+        self._load_bitstream()
         self._load_pmufw()
         self._load_fsbl()
-        self._load_bitstream()
         self._load_devicetree()
         self._load_uboot()
         self._load_atf()
@@ -109,9 +109,9 @@ class BootZynqmp(BaseBoot):
         self.serialcon.sendline(f"source {hex(self.config['boot_scr_loadaddr'])}")
 
     def _uboot_boot(self):
+        self._load_bitstream()
         self._load_pmufw()
         self._load_fsbl()
-        self._load_bitstream()
         self._load_devicetree()
         self._load_uboot()
         self._load_atf()
@@ -153,6 +153,8 @@ class BootZynqmp(BaseBoot):
             sleep(5)
             self.xsdbcon.write(macros)
             sleep(5)
+        elif self.config.get("load_bitstream"):
+            self.load_bitstream(f"{self.images_dir}/system.bit")
 
     def _validate_address(self, addr_value):
         for addr, value in addr_value.items():
@@ -370,8 +372,92 @@ def load_pdi(
     )
 
 
+def _set_prompt(cons) -> None:
+    """
+    This api recognises the current user based on the prompt.
+    It will assign prompt accordingly.
+    Parameters:
+        cons - console was acquired serial or qemu instance.
+    """
+    index = cons.runcmd(
+        "cd", timeout=10, expected=[r"# ", r"\$"], wait_for_prompt=False
+    )
+    if index == 1:
+        prompt = r"petalinux(.*?)\$ "
+    else:
+        prompt = r"root(.*?)# "
+    # Assigning the prompt to console
+    cons.prompt = prompt
+
+
+def _setup_linuxcons(cons) -> None:
+    """
+    This api setups the linux cons. It will setup the prompt,
+    assigns format to PS, setup the xexpect init and finally
+    synchronises the instance by clearing the buffer.
+    Parameters:
+        cons - console was acquired serial or qemu instance.
+    """
+    _set_prompt(cons)
+    cons.runcmd(r"PS1='\u:\t:\w\$ '", timeout=10)
+    cons._setup_init()
+    cons.sync()
+    cons.exit_nzero_ret = True
+
+
+def _root_login(cons, user_passwd="petalinux") -> None:
+    """
+    This api swicthes console user name to root.
+    Some test executions need root previlages to run.
+    Parameters:
+        cons - console was acquired serial or qemu instance.
+        user_password - Password for the petalinux user id
+    """
+    # Setting default password to root account.
+    root_passwd = "root"
+    cons.prompt = None
+    # Swicthing to root user
+    cons.sendline("sudo su -")
+    index = cons.expect(expected=["~# ", "Password:"], timeout=10)
+    if index == 1:
+        cons.sendline(user_passwd)
+        cons.expect(expected="~# ", timeout=10)
+
+    # Set root user password "root"
+    cons.sendline("passwd root")
+    cons.expect(expected="New password:", timeout=10)
+    cons.sendline(root_passwd)
+    cons.expect(expected="Retype new password:", timeout=10)
+    cons.sendline(root_passwd)
+    # Set root prompt
+    cons.prompt = r"root(.*?)# "
+    # source the init function again
+    cons._setup_init()
+    cons.runcmd(r"PS1='\u:\t:\w\$ '", timeout=10)
+    cons.exit_nzero_ret = True
+    # Enable ssh login for drop bear
+    # -w blocks root login into the target.
+    cons.runcmd("sed -i 's/-w//' /etc/default/dropbear")
+    cons.sync()
+
+
+def _petalinux_login(cons) -> None:
+    """
+    This api swicthes the console user to "petalinux" user id.
+    Some test cases can run at application level without root previlages.
+    Parameters:
+        cons - console was acquired serial or qemu instance.
+    """
+    # This scenario is possible only if user is coming from root.
+    # No password needed
+    cons.prompt = None
+    cons.sendline("su -l petalinux")
+    cons.expect(expected=r"\$ ", timeout=10, wait_for_prompt=False)
+    _setup_linuxcons(cons)
+
+
 def linux_login_cons(
-    cons, user="root", password="root", login=True, timeout=500
+    cons, user="petalinux", password="petalinux", login=True, timeout=500
 ) -> None:
     """This Function is to login on target linux
     Parameters:
@@ -384,17 +470,17 @@ def linux_login_cons(
         cons.expect(expected="login:", timeout=timeout)
         cons.sendline("\r\n")
         cons.expect(expected="login:")
-        cons.runcmd(user, expected="Password:")
-        cons.runcmd(cmd=password, expected="~# ")
+        index = cons.runcmd(user, expected=["Password:", "New password:"])
+        if index == 1:
+            cons.runcmd(cmd=password, expected="Retype new password:")
+        cons.runcmd(cmd=password, expected=[r"~\$ ", r"~# "])
     else:
         cons.expect(expected="~# ", timeout=timeout)
-    cons.prompt = r"root(.*?)# "
-    cons.runcmd(r"PS1='\u:\t:\w\$ '", timeout=10)
-    cons._setup_init()
-    cons.exit_nzero_ret = True
+    # Set Linux console for test executions
+    _setup_linuxcons(cons)
 
 
-def is_linux_cons(linuxcons, prompt="# ") -> bool:
+def is_linux_cons(linuxcons, prompt=None) -> bool:
     """This Function is to login on target linux
     Parameters:
        linuxcons - linuxcons was target serial or qemu instance
@@ -403,15 +489,12 @@ def is_linux_cons(linuxcons, prompt="# ") -> bool:
     try:
         linuxcons.sendcontrol("c")
         linuxcons.sendline("\r\n")
-        linuxcons.prompt = prompt
-        linuxcons.runcmd("cd", timeout=10)
-        linuxcons.prompt = r"root(.*?)# "
-        linuxcons.runcmd(r"PS1='\u:\t:\w\$ '", timeout=10)
-        linuxcons.sync()
-        linuxcons._setup_init()
-        linuxcons.exit_nzero_ret = True
+        linuxcons.sendline("stty sane")
+        _setup_linuxcons(linuxcons)
+
     except Exception as err:
         ret = False
+        print(err)
     return ret
 
 
@@ -427,7 +510,9 @@ def uboot_login(cons, prompt="(ZynqMP>|Zynq>|U-Boot>|Versal> )") -> None:
     cons.prompt = prompt
 
 
-def linux_login(board, user="root", password="root", timeout=500, login=True) -> None:
+def linux_login(
+    board, user="petalinux", password="petalinux", timeout=500, login=True
+) -> None:
     linux_login_cons(
         board.serial, user=user, password=password, login=login, timeout=timeout
     )
@@ -451,13 +536,21 @@ def linux(board, timeout=500, expected_msg="Total PLM Boot Time") -> None:
     if load_interface == "tcl":
         xsdbcon.run_tcl(config["linux_run_tcl"])
         if config.get("tcl_args"):
-            xsdbcon.runcmd(config["tcl_args"])
+            failure_list = [
+                "Configuration timed out waiting for DONE",
+                "No supported device found",
+                "PLM Error",
+                "no such file or directory",
+                "PLM stalled during programming",
+            ]
+            xsdbcon.runcmd(config["tcl_args"], expected_failures=failure_list)
     elif load_interface == "petalinux":
         if board.config["boottype"] == "prebuilt":
             petalinux_boot(
                 board.config,
                 hwserver=board.systest.systest_host,
                 rootfs=board.config.get("rootfs"),
+                dtb=board.config.get("plnx_dtb"),
             )
         elif board.config["boottype"] == "kernel":
             petalinux_boot(
@@ -467,6 +560,7 @@ def linux(board, timeout=500, expected_msg="Total PLM Boot Time") -> None:
                 proj_path=board.config["plnx_proj_path"],
                 hwserver=board.systest.systest_host,
                 rootfs=board.config.get("rootfs"),
+                dtb=board.config.get("plnx_dtb"),
             )
 
     elif load_interface == "images":
@@ -496,6 +590,26 @@ def copy_init_files(board):
                     board.serial.runcmd(f"tar xvf {f_name}")
         board.serial.runcmd("cd")
         board.first_boot = False
+
+
+def switch_user(board):
+    config = board.config
+    # get the current user name
+    target_user = board.serial.prompt.split("(")[0]
+    run_as_root = config.get("run_as_root", True)
+
+    # Set the approrpiate user for test execution
+    if run_as_root and target_user == "petalinux":
+        # login into root user
+        _root_login(board.serial)
+    elif (not run_as_root) and target_user == "root":
+        # login to petalinux user
+        _petalinux_login(board.serial)
+
+    # Check for the user and assign to board.target_user
+    # These values are used by scp and ssh utils.
+    board.target_user = board.serial.prompt.split("(")[0]
+    board.target_password = board.target_user
 
 
 def linuxcons(config, board_session, timeout=1000, expected_msg="Total PLM Boot Time"):
@@ -535,5 +649,6 @@ def linuxcons(config, board_session, timeout=1000, expected_msg="Total PLM Boot 
         board.start()
         linux(board, timeout, expected_msg)
 
+    switch_user(board)
     copy_init_files(board)
     return board

@@ -21,11 +21,16 @@ class DmaLinux(DtsLinux, SysDevices, BaseLinux):
         return self.get_channels(self.dma_dts_nodes, "dma")
 
     def dma_run(self, timeout=60):
+        distro = self.get_system_distro()
+        if distro == "systemd":
+            self.console.runcmd("journalctl -f > /var/log/messages 2>&1 &")
         self.console.runcmd("echo > /var/log/messages")
         self.console.runcmd(
             f"echo 1 > {self.sys_dmatest}/run; sleep {timeout}; \r\n",
             timeout=timeout + 60,
         )
+        if distro == "systemd":
+            self.console.runcmd("pkill journalctl")
         self.console.sync()
         self.console.runcmd(
             "cat /var/log/messages",
@@ -77,13 +82,13 @@ class DmaLinux(DtsLinux, SysDevices, BaseLinux):
             f"modprobe vdmatest test_buf_size={bufsize} iterations={iterations}"
         )
         self.console.runcmd(
-            f"rmmod vdmatest.ko; modprobe vdmatest.ko hsize=640 vsize=480"
+            f"modprobe -r vdmatest; modprobe vdmatest hsize=640 vsize=480"
         )
         self.console.runcmd(
-            f"rmmod vdmatest.ko; modprobe vdmatest.ko hsize=1280 vsize=720"
+            f"modprobe -r vdmatest; modprobe vdmatest hsize=1280 vsize=720"
         )
         self.console.runcmd(
-            f"rmmod vdmatest.ko; modprobe vdmatest.ko hsize=1920 vsize=1080"
+            f"modprobe -r vdmatest; modprobe vdmatest hsize=1920 vsize=1080"
         )
 
     def dma_print_result(self):

@@ -322,7 +322,7 @@ class Petalinux(Basebuild):
                 "conf": f"{self.kernel_dir}/bsp.cfg",
                 "conf_dir": f"{self.kernel_dir}",
                 "bbappend": [
-                    'FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"',
+                    'FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"',
                     'SRC_URI += "file://bsp.cfg"',
                 ],
             },
@@ -370,17 +370,17 @@ class Petalinux(Basebuild):
                 add_newline(f"{self.kernel_bbappend}", 'SRC_URI += "file://bsp.cfg"')
                 add_newline(
                     myappend_file,
-                    'FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"',
+                    'FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"',
                 )
             if key in components:
                 add_newline(
                     myappend_file,
-                    'FILESEXTRAPATHS_prepend := "${THISDIR}:"',
+                    'FILESEXTRAPATHS:prepend := "${THISDIR}:"',
                 )
             else:
                 add_newline(
                     myappend_file,
-                    'FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"',
+                    'FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"',
                 )
             for itr in value:
                 if itr.endswith(".patch"):
@@ -479,7 +479,7 @@ class Petalinux(Basebuild):
                         )
                         add_newline(
                             f"{self.project_config}",
-                            f"CONFIG_SUBSYSTEM_COMPONENT_{component_map[key]}_NAME_EXT__LOCAL__SRC_PATH=\"{value['externalsrc']}\"",
+                            f"CONFIG_SUBSYSTEM_COMPONENT_{component_map[key]}_NAME_EXT_LOCAL_SRC_PATH=\"{value['externalsrc']}\"",
                         )
             else:
                 bbappend = _external_repo_setup(self, key)
@@ -607,7 +607,7 @@ class Petalinux(Basebuild):
             raise Exception(f"ERROR: {self.workDir}/{script} not exist")
         self.runner.runcmd(cmd=str(config_cmd), expected=expected, timeout=timeout)
 
-    def plnx_package_boot(self, timeout: int = 600) -> None:
+    def plnx_package_boot(self, dtb=None, timeout: int = 600) -> None:
         """This Function creates BOOT.BIN"""
 
         if self.config["platform"].strip().lower() == "zynqmp":
@@ -625,6 +625,9 @@ class Petalinux(Basebuild):
             )
         elif self.config["platform"].strip().lower() == "versal":
             plnx_bin_cmd = "petalinux-package --boot --force --u-boot"
+            if dtb:
+                plnx_bin_cmd += f" --dtb {dtb}"
+
         elif self.config["platform"].strip().lower() == "microblaze":
             plnx_bin_cmd = ""
         else:
@@ -712,6 +715,7 @@ class Petalinux(Basebuild):
         hwserver: Optional[str] = None,
         bitfile: Optional[str] = None,
         rootfs: Optional[str] = None,
+        dtb: Optional[str] = None,
     ) -> None:
         """This function create petalinux boot command"""
 
@@ -727,6 +731,8 @@ class Petalinux(Basebuild):
                     cmd += f" --bitstream {bitfile}"
         if rootfs:
             cmd += f" --rootfs {rootfs}"
+        if dtb:
+            cmd += f" --dtb {dtb}"
         if hwserver:
             cmd += f" --hw_server-url {hwserver}:3121"
 
@@ -737,12 +743,16 @@ class Petalinux(Basebuild):
         self.runner.runcmd(f"cd {self.proj_dir}")
         self.runner.runcmd(cmd=str(cmd), timeout=3600)
 
-    def _run_qemu_boot(self, cmd, proj_path=None, qemu_args=None, rootfs=None):
+    def _run_qemu_boot(
+        self, cmd, proj_path=None, qemu_args=None, rootfs=None, dtb=None
+    ):
         """This function create petalinux qemu boot command"""
         if proj_path:
             self.proj_dir = proj_path
         if rootfs:
             cmd += f" --rootfs {rootfs}"
+        if dtb:
+            cmd += f" --dtb {dtb}"
         if qemu_args:
             cmd += f" {qemu_args}"
 
@@ -761,6 +771,7 @@ class Petalinux(Basebuild):
         bitfile=None,
         qemu_args=None,
         rootfs=None,
+        dtb=None,
     ):
         if boottype not in ("prebuilt 2", "prebuilt 3", "kernel", "uboot"):
             raise Exception(
@@ -770,10 +781,10 @@ class Petalinux(Basebuild):
 
         if hwserver:
             cmd = f"petalinux-boot --jtag -v --{boottype}"
-            self._run_boot(cmd, proj_path, hwserver, bitfile, rootfs)
+            self._run_boot(cmd, proj_path, hwserver, bitfile, rootfs, dtb)
         else:
             cmd = f"petalinux-boot --qemu --{boottype}"
-            self._run_qemu_boot(cmd, proj_path, qemu_args, rootfs)
+            self._run_qemu_boot(cmd, proj_path, qemu_args, rootfs, dtb)
 
     def __del__(self):
         """This function deletes the petalinux project created under TEMP path.
@@ -900,7 +911,7 @@ class Petalinux(Basebuild):
             self.runner.runcmd(cmd=f"petalinux-devtool {operation} ")
 
 
-def petalinux_build(config):
+def petalinux_build(config, dtb=None):
 
     plnx_builder = Petalinux(config)
     plnx_builder.configure()
@@ -950,7 +961,7 @@ def petalinux_build(config):
     # create BOOT.bin
     if "plnx_package_boot" in config:
         if config["plnx_package_boot"]:
-            plnx_builder.plnx_package_boot()
+            plnx_builder.plnx_package_boot(dtb)
 
     # deploy images
     plnx_builder.deploy()
@@ -966,6 +977,7 @@ def petalinux_boot(
     bitfile=None,
     qemu_args=None,
     rootfs=None,
+    dtb=None,
     setup=False,
 ):
     plnx_runner = Petalinux(config, setup=setup)
@@ -977,7 +989,9 @@ def petalinux_boot(
         if boottype in ("prebuilt 2", "prebuilt 3"):
             if not is_dir(proj_path) and not is_dir(plnx_runner.proj_dir):
                 plnx_runner.create_project()
-        plnx_runner.plnx_boot(boottype, proj_path, hwserver, bitfile, qemu_args, rootfs)
+        plnx_runner.plnx_boot(
+            boottype, proj_path, hwserver, bitfile, qemu_args, rootfs, dtb
+        )
     else:
         log.info(
             """Invalid petalinux boot type selected

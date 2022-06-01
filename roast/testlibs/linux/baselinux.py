@@ -39,6 +39,13 @@ class BaseLinux:
         self.console.runcmd("uname -a", expected="\r\n")
         return self.console.output()
 
+    def get_system_distro(self):
+        self.console.runcmd(
+            "[ -d '/usr/lib/systemd' ] && echo 'systemd' || echo 'systemv'",
+            expected="\r\n",
+        )
+        return self.console.output()
+
     def get_bootargs(self):
         self.console.runcmd(f"cat {self.bootargs}", expected="\r\n")
         return self.console.output()

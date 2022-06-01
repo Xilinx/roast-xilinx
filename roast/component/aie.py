@@ -68,11 +68,11 @@ def run_linux_app(board):
     wait_for_prompt = False if test == "clock_gating" else True
     board.serial.runcmd("lsmod", expected="\r\n")
     if "zocl" in board.serial.output():
-        board.serial.runcmd("rmmod zocl &> /dev/null")
+        board.serial.runcmd("modprobe -r zocl &> /dev/null")
         board.serial.runcmd(
             "modprobe zocl",
-            expected="Initialized zocl",
             err_msg="Loading zocl module failed",
+            timeout=10,
         )
     try:
         if board.config.get("cardano_app"):

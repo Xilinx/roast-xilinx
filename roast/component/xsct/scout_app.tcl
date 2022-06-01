@@ -457,9 +457,8 @@ proc set_processor_name {} {
 	# Find all the valid processors in the HDF
 	set processor [hsi::get_cells -hier -filter {IP_TYPE==PROCESSOR}]
 	if {! [contains_any $::params(processor) $processor] == "1" } {
-		puts "WARN: The given processor: $::params(processor) is not supported in design, \
-		using design supported processor:[lindex $processor 0]"
-		set ::params(processor) [lindex $processor 0]
+		puts stderr "The given processor: $::params(processor) is not supported in design"
+		exit 1
 	}
 }
 

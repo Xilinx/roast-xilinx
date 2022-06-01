@@ -70,6 +70,13 @@ def generate_bif(config, format_type: str) -> None:
     bif_path = os.path.join(config["workDir"], config["bifFile"])
     with open(bif_path, "w") as biffile:
         if format_type == "new":
+            dtb_offset = config.get("dtb_offset", 0x300000)
+            kernel_offset = config.get("kernel_offset", 0x380000)
+            rootfs_offset = config.get("rootfs_offset", 0x2080000)
+            dtb_loadaddr = config.get("dtb_loadaddr", 0x1000)
+            kernel_loadaddr = config.get("kernel_loadaddr", 0x80000)
+            rootfs_loadaddr = config.get("rootfs_loadaddr", 0x30000000)
+
             defdata = {
                 "plm": ["type = bootloader", "path"],
                 "bootimg": ["type = bootimage", "path"],
@@ -86,9 +93,27 @@ def generate_bif(config, format_type: str) -> None:
                 "a72_1": ["core = a72-1", "path"],
                 "r5_1": ["core = r5-1", "path"],
                 "r5_lock": ["core = r5-lockstep", "path"],
-                "sys_dtb_osl": ["offset=0x300000", "load=0x1000", "path"],
-                "linux_image_osl": ["offset=0x380000", "load=0x80000", "path"],
-                "rootfs_osl": ["offset=0x2080000", "load=0x30000000", "path"],
+                "a78_0": ["core = a78-0", "path"],
+                "a78_1": ["core = a78-1", "path"],
+                "a78_2": ["core = a78-2", "path"],
+                "a78_3": ["core = a78-3", "path"],
+                "r52_0": ["core = r52-0", "path"],
+                "r52_1": ["core = r52-1", "path"],
+                "sys_dtb_osl": [
+                    f"offset={hex(dtb_offset)}",
+                    f"load={hex(dtb_loadaddr)}",
+                    "path",
+                ],
+                "linux_image_osl": [
+                    f"offset={hex(kernel_offset)}",
+                    f"load={hex(kernel_loadaddr)}",
+                    "path",
+                ],
+                "rootfs_osl": [
+                    f"offset={hex(rootfs_offset)}",
+                    "load={hex(rootfs_loadaddr)}",
+                    "path",
+                ],
             }
             subsys_data = {
                 "pmc_subsys": "0x1c000001",
@@ -244,7 +269,10 @@ def generate_pdi(config) -> None:
     ]
     cmd = " ".join(bootgen_cmd)
     console.runcmd(
-        cmd, expected="Bootimage generated successfully", wait_for_prompt=False
+        cmd,
+        expected="Bootimage generated successfully",
+        wait_for_prompt=False,
+        err_msg="Boot_bin image generaion failed",
     )
 
     if is_file(os.path.join(config["imagesDir"], config["pdiFile"])):
@@ -283,7 +311,10 @@ def gen_boot_bin(config) -> None:
             console.runcmd(f"export {env}")
 
     console.runcmd(
-        cmd, expected="Bootimage generated successfully", wait_for_prompt=False
+        cmd,
+        expected="Bootimage generated successfully",
+        wait_for_prompt=False,
+        err_msg="Boot_bin image generaion failed",
     )
 
     if is_file(os.path.join(config["imagesDir"], config["binFile"])):

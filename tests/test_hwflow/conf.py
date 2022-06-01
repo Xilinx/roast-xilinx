@@ -2,19 +2,20 @@
 # Copyright (c) 2020 Xilinx, Inc. All rights reserved.
 # SPDX-License-Identifier: MIT
 #
+import os
 
 ROOT = ""
 buildDir = "{ROOT}/tests/test_hwflow/_tmp"
 
-# Settings to test hwflow package version 4.1
+# Settings to test with hwflow package version 6.1
 hwflow_ver = "2.0"
-version = "2020.2"
-build = "2020.2_INT_0810_1"
+version = "2021.2"
+build = "{version}_2021_1021_1001"
 VIVADO = "/proj/xbuilds/{build}/installs/lin64/Vivado/{version}/bin/vivado"
 
 # Design script and outputs
 design_name = "versal_3bram"
-design_script = "{ROOT}/tests/test_hwflow/{design_name}.py"
+design_script = f"{os.path.dirname(__file__)}/{design_name}.py"
 artifacts = [
     "outputs",
     "@design.runs/impl_1/gen_files",
