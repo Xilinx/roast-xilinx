@@ -285,6 +285,10 @@ def linux_runner(config, setup=True):
             config.buildDir, "/".join(config.test_path_list), "cardano"
         )
         config["src_path"] = f"{config.cardano_base_ws_dir}/images"
+        # check for the presence of dir and error as "build case failed"
+        assert is_dir(
+            os.path.join(config.cardano_base_ws_dir, "images")
+        ), "Cardano Build case failed"
         copyDirectory(f"{config['src_path']}", bm.workDir)
 
         # Add adf header files and libs

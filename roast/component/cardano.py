@@ -310,6 +310,12 @@ def baremetal_lib(config, proc, setup=True):
         )
         repo_path = aiert_path
 
+    if builder.config.get("extra_CFlags"):
+        addLine = "\n".join(builder.config.extra_CFlags)
+        add_line_after_match(
+            f"{repo_path}/driver/src/Makefile", "EXTRA_CFLAGS=", addLine
+        )
+
     args = builder.parser(config)
     if repo_path:
         args["rp"] = repo_path
@@ -341,6 +347,7 @@ def baremetal_lib(config, proc, setup=True):
             f"{builder.config['workDir']}/{builder.config['component']}/"
             + f"{builder.config['component']}/src/lscript.ld"
         )
+
         copyDirectory(
             component_ws_dir,
             f"{builder.config['imagesDir']}/{builder.config['xsct_proc_name']}",
@@ -386,3 +393,28 @@ def check_cardano(config):
         config["cardano_app"] = True
     else:
         config["cardano_app"] = False
+
+
+def add_line_after_match(file_path, search_string, newline):
+    """
+    searches for a "search_string" in the "file_path"
+    Adds line "newline" after the line where match is found
+    """
+
+    with open(file_path, "r+") as f:
+        # read file contents
+        contents = f.readlines()
+
+        # Get the index where search_string is found
+        for index, line in enumerate(contents):
+            if search_string in line:
+                location_of_line = index + 1
+                newline = "\n" + newline + "\n"
+                break
+
+        # insert newline
+        contents.insert(location_of_line, newline)
+
+        # write the contents back to file
+        f.seek(0)
+        f.writelines(contents)

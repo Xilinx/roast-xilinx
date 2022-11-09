@@ -65,19 +65,24 @@ class Flashutil:
         elif self.flash_type == "mmc":
             return hex((len // 512) + 1)
 
-    def write_image(self, pdi_image, offset=0, timeout=200):
+    def write_image(self, pdi_image, offset=0, timeout=200, clear_from_start=False):
         """Function to write image to specified flash device
 
         Args:
             pdi_name(str): name of the pdi to load into flash device
             offset(int, optional): offset of flash device where to write data
+            clear_from_start(bool, optional): when set clears flash from the start address
         """
         self.xsdb.set_proc("versal")
         self.xsdb.runcmd(
             f"dow -data -force {pdi_image} {self.DDR_ADDR}", timeout=timeout
         )
         pdi_len = self._get_len(pdi_image)
-        self.flashdev.erase(pdi_len, offset=offset)
+        if clear_from_start:
+            self.flashdev.erase(hex(int(pdi_len, 16) + int(offset, 16)), offset=0)
+        else:
+            self.flashdev.erase(pdi_len, offset=offset)
+
         self.flashdev.write(self.DDR_ADDR, pdi_len, offset=offset)
 
     @classmethod

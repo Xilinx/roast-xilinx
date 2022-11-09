@@ -21,12 +21,14 @@ class BaseLinux:
         self.sys_dmatest = "/sys/module/dmatest/parameters"
         self.bootargs = "/proc/cmdline"
         self.sys_devices = "/sys/devices"
+        self.sys_edac = "/sys/devices/system/edac"
         self.sys_class = "/sys/class"
         self.sys_class_dev = {
             "mmc": f"{self.sys_class}/mmc_host",
             "dma": f"{self.sys_class}/dma",
             "i2c": f"{self.sys_class}/i2c-adapter",
             "rtc": f"{self.sys_class}/rtc",
+            "watchdog": f"{self.sys_class}/watchdog",
         }
         self.proc_kernel = "/proc/sys/kernel"
         self.dev_events = "/dev/input/by-path/"

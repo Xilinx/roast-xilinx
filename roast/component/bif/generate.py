@@ -164,13 +164,13 @@ def generate_bif(config, format_type: str) -> None:
                             id, defdata[component.name][0], extra_args, image_path
                         )
                         biffile.write(str_component)
-                elif header.header == "metaheader":
+                else:
                     for component in components:
                         extra_args = bifstring(
                             "", "".join(component.params[:-1]), config
                         )
                         str_component = (
-                            f"\n  metaheader \n" f"  {{\n" f"    {extra_args}\n"
+                            f"\n  {header.header} \n" f"  {{\n" f"    {extra_args}\n"
                         )
                         biffile.write(str_component)
                 biffile.write(" }\n")
