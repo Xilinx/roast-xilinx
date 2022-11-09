@@ -7,6 +7,7 @@ import time
 import sys
 import logging
 from roast.component.board.boot import load_pdi, is_linux, linuxcons
+import roast.component.board.boot as boot
 from roast.utils import is_file, copyDirectory, get_original_path
 from roast.component.cardano import check_cardano
 
@@ -42,7 +43,6 @@ def run_std_app(board, procname, load_boot_pdi=False):
 
 
 def run_aie_demo(board):
-    board.serial.prompt = "# "
     board.serial.runcmd(
         "aie-matrix-multiplication",
         expected="Success!",
@@ -55,11 +55,11 @@ def run_aie_demo(board):
 def copy_linux_app(board):
     test = board.config["test"]
     src_file = f"{board.config['imagesDir']}/deploy_artifacts.tar.xz"
-    board.put(src_file, "~/")
+    board.put(src_file, "/tmp/")
     # board.serial.terminal.interact()
 
-    board.serial.runcmd(f"mkdir -p ~/{test}")
-    cmd_list = [f"tar xvf deploy_artifacts.tar.xz -C {test}/", f"cd {test}"]
+    board.serial.runcmd(f"mkdir -p /tmp/{test}")
+    cmd_list = [f"tar xvf /tmp/deploy_artifacts.tar.xz -C /tmp/{test}/"]
     board.serial.runcmd_list(cmd_list)
 
 
@@ -68,6 +68,7 @@ def run_linux_app(board):
     wait_for_prompt = False if test == "clock_gating" else True
     board.serial.runcmd("lsmod", expected="\r\n")
     if "zocl" in board.serial.output():
+        boot.switch_user_root(board)
         board.serial.runcmd("modprobe -r zocl &> /dev/null")
         board.serial.runcmd(
             "modprobe zocl",
@@ -75,10 +76,11 @@ def run_linux_app(board):
             timeout=10,
         )
     try:
+        boot.switch_user(board)
         if board.config.get("cardano_app"):
-            cmd = "./aie_control_xrt.run ./aie_xrt.xclbin"
+            cmd = f"/tmp/{test}/aie_control_xrt.run /tmp/{test}/aie_xrt.xclbin"
         else:
-            cmd = "./aie_control.run"
+            cmd = f"/tmp/{test}/aie_control.run"
 
         board.serial.runcmd(
             cmd,
@@ -89,6 +91,7 @@ def run_linux_app(board):
                 "Segmentation fault",
                 "Aborted",
                 "Device open error",
+                "No such file or directory",
             ],
         )
     except Exception as err:

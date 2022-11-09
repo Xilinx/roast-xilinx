@@ -115,21 +115,27 @@ def copy_sd_boot_artifacts(board):
     linuxcons.runcmd(f"sync")
 
 
-def flash_binaries(board, sd_device, binaries, timeout):
+def flash_binaries(board, sd_device, binaries, timeout, bs="32M"):
     """This method performs flashing wic image to SD/eMMC from nfsmount based on the directory path given in
     systest_nw_shared_path.
     Parameters:
         board : object of Board class
         sd_device : the return value of find_sdmount_point
         binaries : List of binaries to be flased
+        bs : block size
 
     >>> Usage:
-        flash_binaries(board, sd_device, config['petalinux-sdimage.wic']
+        flash_binaries(board, sd_device, config['petalinux-sdimage.wic'], bs)
     """
 
     linuxcons = board.serial
     for image in binaries:
-        linuxcons.runcmd(f"dd if=/nfsroot/{image} of={sd_device}", timeout=timeout)
+        if image.endswith(".xz"):
+            linuxcons.runcmd(
+                f"xzcat /nfsroot/{image} | dd of={sd_device} bs={bs}", timeout=timeout
+            )
+        else:
+            linuxcons.runcmd(f"dd if=/nfsroot/{image} of={sd_device}", timeout=timeout)
     umount(linuxcons, "/nfsroot")
     linuxcons.runcmd("df -h")
 
@@ -295,15 +301,13 @@ def sd_boot(board, boot_device="SD"):
         ).driver
     else:
         board.serial = Serial("systest", board.config, mode=True, port="serial").driver
-    if board.config["platform"] == "zynq":
+    if board.config.get("bootmode_tcl"):
+        board.xsdb.run_tcl(f"{board.config['bootmode_tcl']}")
+    elif board.config["platform"] == "zynq":
         board.systest.runcmd("bootmode 'sd'")
         board.serial.mode = True
         board.systest.reset()
     elif board.config["platform"] == "zynqmp":
-        if "bootmode_tcl" in board.config:
-            board.xsdb.run_tcl(f"{board.config['bootmode_tcl']}")
-        else:
-            zynqmp_bootmode_sd(board, boot_device)
-
+        zynqmp_bootmode_sd(board, boot_device)
     elif board.config["platform"] == "versal":
         board.systest.runcmd(f"bootmode '{bootmode_cmd[boot_device]}'")

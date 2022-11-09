@@ -147,10 +147,31 @@ class BuildOsl(Basebuild):
                     f"{self.config['workDir']}/{self.component}",
                     workDir=self.config["workDir"],
                 )
+                if not self.config.git[self.component]["patches"]:
+                    """This Functionality apply the user configs for kernel, uboot, rootfs
+
+                    >>> Usage:
+                        kernel_configs = ['CONFIG_XILINX_ETHERNET=y']
+                        rootfs_configs = ['CONFIG_xen=y', 'CONFIG_DRM=y']
+                        uboot_configs = ['CONFIG_SYS_TEXT_BASE=0x10080001']
+                    """
+                    if self.component in ["uboot", "kernel", "rootfs"]:
+                        if f"{self.component}_configs" in self.config:
+                            conf_path = os.path.join(
+                                self.config["workDir"], self.component
+                            )
+                            conf_file = find_file(self.defconfig, conf_path)
+                            for item in self.config[f"{self.component}_configs"]:
+                                add_newline(conf_file, item)
 
             self.src_path = f"{self.config['workDir']}/{self.component}/"
         else:
-            if self.component not in ["kernel", "kernel_allmodconfig", "uboot"]:
+            if self.component not in [
+                "kernel",
+                "kernel_allmodconfig",
+                "uboot",
+                "rootfs",
+            ]:
                 rsync(self.console, self.external_src, self.config["workDir"])
                 self.src_path = (
                     f"{self.config['workDir']}/{get_base_name(self.external_src)}"
@@ -182,6 +203,108 @@ class BuildOsl(Basebuild):
             copy_file(
                 os.path.join(self.build_path, image), self.config["deploy_artifacts"]
             )
+
+    def generate_fit_dtb(self):
+        self.console.runcmd(f"cd {self.build_path}")
+        self.console.runcmd("type fdtoverlay", err_msg="fdtoverlay: not found")
+        DTB_DIR = "arch/arm/dts"
+
+        # Define dtbo_commands in tcrepo conf.py to generate dtb based on dtbo
+        # Example:
+        # dtbo_commands = ["fdtoverlay -o zynqmp-sm-k26-xcl2gc-ed-revA-sck-kv-g-revA.dtb -i zynqmp-sm-k26-revA.dtb zynqmp-sck-kv-g-revA.dtbo"]
+        if "dtbo_commands" in self.config:
+            self.console.runcmd(f"cd {self.build_path}/{DTB_DIR}")
+            self.console.runcmd_list(self.config["dtbo_commands"])
+            self.console.runcmd(f"cd {self.build_path}")
+        else:
+            err_msg = "ERROR: dtbo_commands not defined in config!"
+            log.error(err_msg)
+            raise Exception(err_msg)
+
+        # Create u-boot fit image tree source (.its) file
+        DT_HEADER = """
+/*
+ * This is a generated file.
+ */
+/dts-v1/;
+
+/ {
+	description = "DT Blob Creation";
+
+	images {
+"""
+        DT_UBOOT = """
+		fdt_1 {
+			description = "zynqmp-smk-k26-revA";
+			data = /incbin/("arch/arm/dts/zynqmp-smk-k26-revA.dtb");
+			type = "flat_dt";
+			arch = "arm64";
+			compression = "none";
+			hash {
+				algo = "md5";
+			};
+		};
+
+"""
+        DT_NODE = """
+		fdt_%d {
+			description = "%s";
+			data = /incbin/("%s");
+			type = "flat_dt";
+			arch = "arm64";
+			compression = "none";
+			hash {
+				algo = "md5";
+			};
+		};
+
+"""
+        DT_UBOOT_CONFIG = """
+	configurations {
+	    default = "config_1";
+
+		config_1 {
+			description = "zynqmp-smk-k26-revA";
+			fdt = "fdt_1";
+		};
+"""
+        DT_CONFIG_NODE = """
+		config_%d {
+			description = "%s";
+			fdt = "fdt_%d";
+		};
+"""
+        DT_IMAGES_NODE_END = """	};
+
+"""
+        DT_END = "};"
+
+        with open(f"{self.build_path}/uboot_fit.its", mode="w") as fit_its:
+            fit_its.write(DT_HEADER)
+            fit_its.write(DT_UBOOT)
+            cnt = 2
+            for dtb in glob.glob(f"{self.build_path}/{DTB_DIR}/*.dtb"):
+                dtname = os.path.basename(dtb)
+                dtb_path = f"{DTB_DIR}/{dtname}"
+                fit_its.write(DT_NODE % (cnt, dtname, dtb_path))
+                cnt = cnt + 1
+
+            fit_its.write(DT_IMAGES_NODE_END)
+            fit_its.write(DT_UBOOT_CONFIG)
+            cnt = 2
+            for dtb in glob.glob(f"{self.build_path}/{DTB_DIR}/*.dtb"):
+                dtname = os.path.basename(dtb)
+                fit_its.write(DT_CONFIG_NODE % (cnt, dtname, cnt))
+                cnt = cnt + 1
+            fit_its.write(DT_IMAGES_NODE_END)
+            fit_its.write(DT_END)
+
+        self.console.runcmd(f"./tools/mkimage -E -f uboot_fit.its -B 0x8 fit-dtb.blob")
+        mkdir(self.config["deploy_artifacts"])
+        copy_file(
+            os.path.join(self.build_path, "fit-dtb.blob"),
+            f"{self.config['deploy_artifacts']}",
+        )
 
 
 class BuildDtb(BuildOsl):

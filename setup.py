@@ -62,7 +62,7 @@ setup(
     packages=packages,
     package_data={"": ["*.yaml", "*.tcl", "*.scr"]},
     python_requires=">=3.6, <4",
-    install_requires=["roast>=4.0.0.dev15"],
+    install_requires=["roast>=5.0.0.dev5"],
     extras_require={
         "dev": [
             "pytest",

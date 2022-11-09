@@ -277,6 +277,14 @@ class Petalinux(Basebuild):
 
         self.runner.runcmd(cmd=str(plnx_silent_cmd), timeout=timeout)
 
+    def _get_sdt(self, timeout: int = 600) -> None:
+        """This function configures the petalinux project with the system device tree passed in the config.
+        config.sdt_flow and config.sdt_file_path must be defined before calling this function
+        """
+        sdt = get_original_path(self.config["sdt_file_path"])
+        sdt_cmd = f"yes | petalinux-config --get-sdt {sdt} --silentconfig"
+        self.runner.runcmd(cmd=str(sdt_cmd), timeout=timeout)
+
     def get_hwdesign(self, timeout: int = 600) -> None:
         """This Function apply hardware design file(.xsa) on petalinux project
 
@@ -362,7 +370,7 @@ class Petalinux(Basebuild):
         for key, value in self.config["apply_patches"].items():
             value = convert_list(value)
             component_dir = f"{key}_dir"
-            mycomponent_dir = getattr(self, component_dir)
+            mycomponent_dir = getattr(self, component_dir) + "/files"
             append_file = f"{key}_bbappend"
             myappend_file = getattr(self, append_file)
             mkdir(mycomponent_dir)
@@ -370,12 +378,12 @@ class Petalinux(Basebuild):
                 add_newline(f"{self.kernel_bbappend}", 'SRC_URI += "file://bsp.cfg"')
                 add_newline(
                     myappend_file,
-                    'FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"',
+                    'FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}/files:"',
                 )
             if key in components:
                 add_newline(
                     myappend_file,
-                    'FILESEXTRAPATHS:prepend := "${THISDIR}:"',
+                    'FILESEXTRAPATHS:prepend := "${THISDIR}/files:"',
                 )
             else:
                 add_newline(
@@ -387,10 +395,10 @@ class Petalinux(Basebuild):
                     if is_file(f"{itr}"):
                         copy_file(f"{itr}", mycomponent_dir)
                         itr = os.path.basename(f"{itr}")
-                        add_newline(myappend_file, f'SRC_URI += "file://{itr}"')
+                        add_newline(myappend_file, f'SRC_URI:append= " file://{itr}"')
                     else:
                         copy_file(f"{self.config['workDir']}/{itr}", mycomponent_dir)
-                        add_newline(myappend_file, f'SRC_URI += "file://{itr}"')
+                        add_newline(myappend_file, f'SRC_URI:append = " file://{itr}"')
                 else:
                     log.info("Invalid patch...")
 
@@ -924,6 +932,10 @@ def petalinux_build(config, dtb=None):
     # apply external srcs
     if "plnx" in config:
         plnx_builder.apply_external_component()
+
+    # apply sdt
+    if "sdt_flow" and "sdt_file_path" in config:
+        plnx_builder._get_sdt()
 
     # apply hardware design
     if "hw_design_path" in config:

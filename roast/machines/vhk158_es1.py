@@ -5,8 +5,8 @@
 
 from roast.machines.versal import *
 
-PLNX_BSP = "xilinx-vpk120-v{version}-final.bsp"
-plnx_proj = "xilinx-vpk120-{version}"
+PLNX_BSP = "xilinx-vhk158-es1-v{version}-final.bsp"
+plnx_proj = "xilinx-vhk158-es1-{version}"
 plnx_package_boot = True
-uboot_devicetree = "versal-vpk120-revA"
+uboot_devicetree = "versal-vhk158-revA"
 dtb_dtg = uboot_devicetree.lower()
